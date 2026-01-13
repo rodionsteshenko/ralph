@@ -71,8 +71,10 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "",
+      "actualDuration": 317.16029691696167,
+      "iterationNumber": 1
     },
     {
       "id": "US-005",
@@ -87,8 +89,10 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "",
+      "actualDuration": 160.53820371627808,
+      "iterationNumber": 1
     },
     {
       "id": "US-006",
@@ -826,9 +830,9 @@
   ],
   "metadata": {
     "createdAt": "2026-01-13T09:57:05.204847",
-    "lastUpdatedAt": "2026-01-13T11:34:35.261707",
+    "lastUpdatedAt": "2026-01-13T12:47:08.006444",
     "totalStories": 50,
-    "completedStories": 3,
+    "completedStories": 5,
     "currentIteration": 1
   }
 }

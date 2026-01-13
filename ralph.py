@@ -28,6 +28,13 @@ except ImportError:
     print("Or manually: uv pip install -r requirements.txt")
     sys.exit(1)
 
+# Try to import ASCII art display (optional dependency)
+try:
+    from ascii_image import display_ascii_image
+    HAS_ASCII_ART = True
+except ImportError:
+    HAS_ASCII_ART = False
+
 
 def get_anthropic_client():
     """Get Anthropic client, trying multiple authentication methods."""
@@ -474,6 +481,22 @@ class RalphLoop:
         max_iter = max_iterations or self.config.get("ralph.maxIterations", 20)
         max_failures = self.config.get("ralph.maxFailures", 3)
         
+        # Display Ralph ASCII art if available
+        if HAS_ASCII_ART:
+            ralph_image_path = Path(__file__).parent / "ralph.jpg"
+            if ralph_image_path.exists():
+                try:
+                    display_ascii_image(
+                        str(ralph_image_path),
+                        max_width=60,
+                        dark_mode=True,
+                        contrast_factor=1.5
+                    )
+                    print()  # Add spacing after ASCII art
+                except Exception as e:
+                    # If ASCII art fails, just continue without it
+                    pass
+        
         print(f"\n🚀 Starting Ralph Loop")
         print(f"   Max iterations: {max_iter if max_iter > 0 else 'unlimited'}")
         print(f"   Max consecutive failures: {max_failures}")
@@ -546,7 +569,23 @@ class RalphLoop:
         print(f"\n📊 Final Status: {completed}/{total} stories completed")
     
     def _select_next_story(self, stories: List[Dict], prd: Dict) -> Dict:
-        """Select next story based on priority and dependencies."""
+        """Select next story using AI analysis or simple priority-based selection."""
+        # Check if AI-powered selection is enabled
+        use_ai_selection = self.config.get("ralph.useAISelection", True)
+        
+        if use_ai_selection:
+            try:
+                return self._select_next_story_with_claude(stories, prd)
+            except Exception as e:
+                print(f"   ⚠️  AI selection failed: {e}")
+                print(f"   Falling back to simple priority-based selection...")
+                # Fall through to simple selection
+        
+        # Simple priority-based selection (fallback)
+        return self._select_next_story_simple(stories, prd)
+    
+    def _select_next_story_simple(self, stories: List[Dict], prd: Dict) -> Dict:
+        """Select next story based on priority and dependencies (simple heuristic)."""
         # Sort by priority
         stories.sort(key=lambda s: s.get("priority", 999))
         
@@ -569,6 +608,151 @@ class RalphLoop:
                 runnable.append(story)
         
         return runnable[0] if runnable else stories[0]
+    
+    def _select_next_story_with_claude(self, stories: List[Dict], prd: Dict) -> Dict:
+        """Use Claude to intelligently select the next story based on codebase analysis."""
+        print("🧠 Analyzing stories with Claude to select optimal next task...")
+        
+        # Build summary of remaining stories
+        remaining_stories_summary = []
+        for story in stories:
+            remaining_stories_summary.append({
+                "id": story["id"],
+                "title": story["title"],
+                "description": story.get("description", ""),
+                "priority": story.get("priority", 999),
+                "acceptanceCriteria": story.get("acceptanceCriteria", [])
+            })
+        
+        # Get completed stories
+        completed_stories = [s for s in prd["userStories"] if s.get("passes", False)]
+        completed_ids = [s["id"] for s in completed_stories]
+        
+        # Get codebase structure (list key files/directories)
+        codebase_summary = self._get_codebase_summary(prd)
+        
+        # Build prompt for Claude
+        prompt = f"""You are analyzing a software project PRD to determine the optimal next user story to implement.
+
+## Project Context
+
+**Project**: {prd.get('project', 'Unknown')}
+**Description**: {prd.get('description', 'No description')}
+
+**Completed Stories**: {', '.join(completed_ids) if completed_ids else 'None'}
+
+## Current Codebase Structure
+
+{codebase_summary}
+
+## Remaining Stories
+
+{json.dumps(remaining_stories_summary, indent=2)}
+
+## Your Task
+
+Analyze the remaining stories and determine which story should be implemented next. Consider:
+
+1. **Dependencies**: Which stories depend on others? What needs to be built first?
+2. **Implementation Readiness**: What's already in the codebase that would help implement each story?
+3. **Critical Path**: Which stories unlock the most other stories?
+4. **Complexity**: Which stories are foundational and should come first?
+5. **Priority**: Consider the priority field, but don't rely solely on it - use your judgment
+
+## Output Format
+
+Respond with ONLY a JSON object in this exact format:
+{{
+  "selectedStoryId": "US-XXX",
+  "reasoning": "Brief explanation of why this story was selected (2-3 sentences)"
+}}
+
+Be specific about why this story makes sense given the current codebase state and dependencies."""
+
+        # Call Claude API
+        model = self.config.get("claude.model", "claude-sonnet-4-5-20250929")
+        max_tokens = self.config.get("claude.maxTokens", 8192)
+        
+        response = self.claude.messages.create(
+            model=model,
+            max_tokens=min(max_tokens, 2048),  # Limit for selection task
+            temperature=0.3,  # Lower temperature for more consistent selection
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
+        )
+        
+        # Parse response
+        response_text = response.content[0].text
+        
+        # Extract JSON from response (handle multi-line JSON)
+        json_match = re.search(r'\{[^{}]*"selectedStoryId"[^{}]*"reasoning"[^{}]*\}', response_text, re.DOTALL)
+        if not json_match:
+            # Try simpler pattern
+            json_match = re.search(r'\{.*?"selectedStoryId".*?\}', response_text, re.DOTALL)
+        if json_match:
+            try:
+                selection = json.loads(json_match.group())
+                selected_id = selection.get("selectedStoryId")
+                reasoning = selection.get("reasoning", "No reasoning provided")
+                
+                if selected_id:
+                    # Find the story
+                    selected_story = next((s for s in stories if s["id"] == selected_id), None)
+                    if selected_story:
+                        print(f"   ✅ Selected: {selected_id} - {selected_story['title']}")
+                        print(f"   💭 Reasoning: {reasoning}")
+                        return selected_story
+                    else:
+                        print(f"   ⚠️  Selected story {selected_id} not found in remaining stories")
+            except json.JSONDecodeError as e:
+                print(f"   ⚠️  Failed to parse Claude response: {e}")
+        
+        # Fallback if parsing fails
+        print(f"   ⚠️  Could not parse Claude selection, falling back to simple selection")
+        return self._select_next_story_simple(stories, prd)
+    
+    def _get_codebase_summary(self, prd: Dict) -> str:
+        """Get a summary of the current codebase structure."""
+        working_dir = self.config.get("ralph.workingDirectory")
+        if not working_dir and prd:
+            # Derive from PRD project name
+            import re
+            working_dir = prd.get("project", "").lower().replace(" ", "-")
+            working_dir = re.sub(r'[^a-z0-9-]', '', working_dir)
+        
+        if not working_dir:
+            working_dir = "."
+        
+        work_path = Path.cwd() / working_dir
+        
+        if not work_path.exists():
+            return "No project directory found yet."
+        
+        # List key files and directories
+        summary_lines = []
+        try:
+            # Get top-level items
+            items = sorted(work_path.iterdir())
+            dirs = [d.name for d in items if d.is_dir() and not d.name.startswith('.')]
+            files = [f.name for f in items if f.is_file() and not f.name.startswith('.')]
+            
+            if dirs:
+                summary_lines.append(f"**Directories**: {', '.join(dirs[:10])}")
+            if files:
+                summary_lines.append(f"**Key Files**: {', '.join(files[:15])}")
+            
+            # Check for common project files
+            common_files = ["pyproject.toml", "package.json", "requirements.txt", "README.md", "Makefile"]
+            found_files = [f for f in common_files if (work_path / f).exists()]
+            if found_files:
+                summary_lines.append(f"**Project Files**: {', '.join(found_files)}")
+            
+        except Exception as e:
+            summary_lines.append(f"Error reading directory: {e}")
+        
+        return "\n".join(summary_lines) if summary_lines else "Empty project directory."
     
     def _execute_story(self, story: Dict, prd: Dict, iteration: int) -> bool:
         """Execute a single story using Claude Code."""
@@ -771,6 +955,60 @@ Implement the following user story:
 3. Make sure all acceptance criteria are met
 4. Follow existing code patterns and conventions
 5. Write clean, maintainable code
+
+## Auto-Installation of Missing Dependencies
+
+**IMPORTANT**: If you encounter errors running commands due to missing tools or packages, you have permission to install them automatically.
+
+### When to Auto-Install
+
+If a command fails with errors like:
+- "command not found"
+- "No such file or directory"
+- "package not found"
+- Missing executables or tools
+
+### How to Install
+
+**On macOS (detected by `uname -s` == "Darwin"):**
+- Use Homebrew: `brew install <package-name>`
+- For Python packages: `pip install <package>` or `uv pip install <package>`
+- For Node packages: `npm install -g <package>` or `npm install <package>`
+- For system tools: `brew install <tool>`
+
+**On Linux (detected by `uname -s` == "Linux"):**
+- Use apt: `sudo apt-get update && sudo apt-get install -y <package>`
+- Use yum/dnf: `sudo yum install -y <package>` or `sudo dnf install -y <package>`
+- For Python packages: `pip install <package>` or `pip3 install <package>`
+- For Node packages: `npm install -g <package>` or `npm install <package>`
+
+**General Guidelines:**
+- Check if tool exists first: `which <tool>` or `command -v <tool>`
+- Install missing dependencies before retrying the failed command
+- For Python projects, check if virtual environment needs activation
+- For Node projects, check if `node_modules` needs installation
+- You have permission to use `sudo` when needed for system packages
+
+### Examples
+
+```bash
+# If `jq` command not found:
+brew install jq  # macOS
+sudo apt-get install -y jq  # Linux
+
+# If Python package missing:
+pip install missing-package
+# or
+uv pip install missing-package
+
+# If Node command not found:
+npm install -g typescript
+
+# If git command fails, check if git is installed:
+which git || brew install git  # macOS
+```
+
+**Always retry the original command after installation to verify it works.**
 
 ## Quality Requirements
 

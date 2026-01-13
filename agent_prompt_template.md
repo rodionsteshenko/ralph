@@ -139,6 +139,17 @@ def _build_agent_prompt(self, story: Dict, context: Dict) -> str:
     ...
 ```
 
+## Auto-Installation Section
+
+The prompt includes an "Auto-Installation of Missing Dependencies" section that instructs the agent to:
+
+- Automatically install missing system tools and packages when commands fail
+- Use appropriate package managers (brew for macOS, apt/yum for Linux)
+- Check for missing dependencies before retrying failed commands
+- Has permission to use `sudo` when needed
+
+This helps the agent unblock itself when encountering missing dependencies rather than failing immediately.
+
 ## Best Practices
 
 1. **Keep context focused**: Only include relevant information
@@ -146,3 +157,4 @@ def _build_agent_prompt(self, story: Dict, context: Dict) -> str:
 3. **Include patterns**: Reference agents.md for codebase conventions
 4. **Recent progress**: Help agent learn from previous iterations
 5. **Explicit instructions**: Tell agent exactly what to do
+6. **Auto-installation**: Agent can install missing dependencies automatically
