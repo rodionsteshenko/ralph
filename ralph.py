@@ -22,6 +22,19 @@ from typing import Dict, List, Optional, Tuple
 import re
 
 try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+    from rich.live import Live
+    from rich.text import Text
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+    HAS_RICH = True
+    console = Console()
+except ImportError:
+    HAS_RICH = False
+    console = None
+
+try:
     from anthropic import Anthropic
 except ImportError:
     print("Error: anthropic package not installed. Run: make install")
@@ -394,25 +407,50 @@ class QualityGates:
             "totalDuration": 0.0,
             "timestamp": datetime.now().isoformat()
         }
-        
+
         gates = self.config.get("qualityGates", {})
         start_time = time.time()
-        
+
         for gate_name, gate_config in gates.items():
             if not gate_config.get("required", False):
                 continue
-            
-            print(f"🔍 Running {gate_name}...")
+
+            if HAS_RICH:
+                console.print(f"\n[bold blue]▶ Running {gate_name}...[/bold blue]")
+                console.print(f"[dim]  Command: {gate_config['command']}[/dim]")
+            else:
+                print(f"🔍 Running {gate_name}...")
+                print(f"   Command: {gate_config['command']}")
+
             gate_result = self._run_gate(gate_name, gate_config)
             results["gates"][gate_name] = gate_result
-            
+
             if gate_result["status"] == "FAIL":
                 results["status"] = "FAIL"
-                print(f"❌ {gate_name} failed")
+                if HAS_RICH:
+                    console.print(f"[bold red]✗ {gate_name} failed ({gate_result['duration']:.1f}s)[/bold red]")
+                    if gate_result["output"]:
+                        # Show first 20 lines of output
+                        output_lines = gate_result["output"].split('\n')[:20]
+                        console.print(Panel(
+                            "\n".join(output_lines),
+                            title=f"[red]{gate_name} Output (first 20 lines)[/red]",
+                            border_style="red",
+                            expand=False
+                        ))
+                else:
+                    print(f"❌ {gate_name} failed")
+                    if gate_result["output"]:
+                        print("   Output (first 20 lines):")
+                        for line in gate_result["output"].split('\n')[:20]:
+                            print(f"   {line}")
                 break
             else:
-                print(f"✅ {gate_name} passed ({gate_result['duration']:.1f}s)")
-        
+                if HAS_RICH:
+                    console.print(f"[bold green]✓ {gate_name} passed ({gate_result['duration']:.1f}s)[/bold green]")
+                else:
+                    print(f"✅ {gate_name} passed ({gate_result['duration']:.1f}s)")
+
         results["totalDuration"] = time.time() - start_time
         return results
     
@@ -525,11 +563,23 @@ class RalphLoop:
             
             # Select next story
             story = self._select_next_story(remaining_stories, prd)
-            
-            print(f"\n{'='*60}")
-            print(f"  Iteration {iteration} - {story['id']}: {story['title']}")
-            print(f"{'='*60}")
-            
+
+            if HAS_RICH:
+                console.print("\n")
+                console.print(Panel(
+                    f"[bold magenta]Iteration {iteration}[/bold magenta]\n\n"
+                    f"[cyan]Story ID:[/cyan] {story['id']}\n"
+                    f"[cyan]Title:[/cyan] {story['title']}\n"
+                    f"[cyan]Priority:[/cyan] {story.get('priority', 'N/A')}\n"
+                    f"[dim]Remaining: {len(remaining_stories)} stories[/dim]",
+                    title="📋 Story Selection",
+                    border_style="magenta"
+                ))
+            else:
+                print(f"\n{'='*60}")
+                print(f"  Iteration {iteration} - {story['id']}: {story['title']}")
+                print(f"{'='*60}")
+
             iteration_start = time.time()
             
             # Execute story
@@ -566,7 +616,21 @@ class RalphLoop:
         # Final status
         completed = sum(1 for s in prd["userStories"] if s.get("passes", False))
         total = len(prd["userStories"])
-        print(f"\n📊 Final Status: {completed}/{total} stories completed")
+
+        if HAS_RICH:
+            status_color = "green" if completed == total else "yellow" if completed > 0 else "red"
+            console.print("\n")
+            console.print(Panel(
+                f"[bold {status_color}]{completed}/{total} stories completed[/bold {status_color}]\n\n"
+                f"[cyan]Completed:[/cyan] {completed}\n"
+                f"[cyan]Remaining:[/cyan] {total - completed}\n"
+                f"[cyan]Iterations:[/cyan] {iteration}\n"
+                f"[dim]Logs directory: {Path.cwd() / 'logs'}[/dim]",
+                title="📊 Final Status",
+                border_style=status_color
+            ))
+        else:
+            print(f"\n📊 Final Status: {completed}/{total} stories completed")
     
     def _select_next_story(self, stories: List[Dict], prd: Dict) -> Dict:
         """Select next story using AI analysis or simple priority-based selection."""
@@ -762,9 +826,38 @@ Be specific about why this story makes sense given the current codebase state an
         # Build prompt
         prompt = self._build_agent_prompt(story, context)
 
-        print(f"🤖 Spawning Claude Code agent for story {story['id']}...")
+        # Create detailed log file for this story
+        logs_dir = Path.cwd() / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        detail_log = logs_dir / f"story-{story['id']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+
+        if HAS_RICH:
+            console.print(Panel(
+                f"[bold cyan]Story {story['id']}: {story['title']}[/bold cyan]\n"
+                f"[dim]Iteration {iteration}[/dim]\n"
+                f"[dim]Log file: {detail_log}[/dim]",
+                title="🤖 Claude Code Agent",
+                border_style="cyan"
+            ))
+        else:
+            print(f"🤖 Spawning Claude Code agent for story {story['id']}...")
+            print(f"   Log file: {detail_log}")
 
         try:
+            # Write prompt to log file
+            with open(detail_log, 'w') as f:
+                f.write("=" * 80 + "\n")
+                f.write(f"Story: {story['id']} - {story['title']}\n")
+                f.write(f"Iteration: {iteration}\n")
+                f.write(f"Started: {datetime.now().isoformat()}\n")
+                f.write("=" * 80 + "\n\n")
+                f.write("PROMPT:\n")
+                f.write("-" * 80 + "\n")
+                f.write(prompt)
+                f.write("\n" + "-" * 80 + "\n\n")
+                f.write("CLAUDE CODE OUTPUT:\n")
+                f.write("-" * 80 + "\n")
+
             # Determine if we should use streaming output
             use_streaming = self.config.get("ralph.useStreaming", True)
             
@@ -798,6 +891,10 @@ Be specific about why this story makes sense given the current codebase state an
                     for line in process.stdout:
                         print(line, end='', flush=True)  # Print immediately
                         agent_output_lines.append(line)
+
+                        # Also write to detail log in real-time
+                        with open(detail_log, 'a') as f:
+                            f.write(line)
                         
                         # Check for timeout
                         if time.time() - start_time > timeout_seconds:
@@ -829,19 +926,47 @@ Be specific about why this story makes sense given the current codebase state an
                 agent_output = result.stdout
                 return_code = result.returncode
 
+            # Write completion to log
+            with open(detail_log, 'a') as f:
+                f.write("\n" + "-" * 80 + "\n")
+                f.write(f"Completed: {datetime.now().isoformat()}\n")
+                f.write(f"Return code: {return_code}\n")
+                f.write("=" * 80 + "\n")
+
             if return_code != 0:
                 error_msg = f"Claude Code exited with error code {return_code}"
-                print(f"❌ {error_msg}")
+                if HAS_RICH:
+                    console.print(Panel(
+                        f"[bold red]{error_msg}[/bold red]\n"
+                        f"[dim]Check log: {detail_log}[/dim]",
+                        title="❌ Error",
+                        border_style="red"
+                    ))
+                else:
+                    print(f"❌ {error_msg}")
+                    if not use_streaming:
+                        print(f"   Full output: {agent_output}")
+
                 if not use_streaming:
-                    print(f"   Full output: {agent_output}")
                     self._log_failure(story, agent_output + "\n\nSTDERR:\n" + result.stderr, None, iteration)
                 else:
                     self._log_failure(story, agent_output, None, iteration)
                 return False
 
             # Run quality gates
-            print("🔍 Running quality gates...")
+            if HAS_RICH:
+                console.print("\n[bold yellow]🔍 Running quality gates...[/bold yellow]")
+            else:
+                print("🔍 Running quality gates...")
+
             quality_result = self.quality_gates.run()
+
+            # Write quality results to log
+            with open(detail_log, 'a') as f:
+                f.write("\nQUALITY GATES:\n")
+                f.write("-" * 80 + "\n")
+                f.write(json.dumps(quality_result, indent=2))
+                f.write("\n" + "-" * 80 + "\n")
 
             if quality_result["status"] == "PASS":
                 # Commit changes
@@ -854,10 +979,39 @@ Be specific about why this story makes sense given the current codebase state an
                 if self.config.get("ralph.updateAgentsMd", True):
                     self._update_agents_md(story, agent_output)
 
+                # Show success summary
+                if HAS_RICH:
+                    console.print("\n")
+                    console.print(Panel(
+                        f"[bold green]✓ Story {story['id']} completed successfully![/bold green]\n\n"
+                        f"[cyan]Title:[/cyan] {story['title']}\n"
+                        f"[cyan]Total time:[/cyan] {quality_result['totalDuration']:.1f}s\n"
+                        f"[cyan]Log file:[/cyan] {detail_log}",
+                        title="🎉 Success",
+                        border_style="green"
+                    ))
+                else:
+                    print(f"\n✅ Story {story['id']} completed successfully!")
+
                 return True
             else:
                 # Log failure
                 self._log_failure(story, agent_output, quality_result, iteration)
+
+                # Show failure summary
+                if HAS_RICH:
+                    console.print("\n")
+                    console.print(Panel(
+                        f"[bold red]✗ Story {story['id']} failed[/bold red]\n\n"
+                        f"[cyan]Title:[/cyan] {story['title']}\n"
+                        f"[cyan]Reason:[/cyan] Quality gates failed\n"
+                        f"[cyan]Log file:[/cyan] {detail_log}",
+                        title="❌ Failure",
+                        border_style="red"
+                    ))
+                else:
+                    print(f"\n❌ Story {story['id']} failed")
+
                 return False
 
         except subprocess.TimeoutExpired:
@@ -1119,8 +1273,18 @@ Begin implementation now."""
                 cwd=work_path
             )
 
-            print(f"   ✅ Committed to branch '{branch_name}': {commit_msg}")
-            print(f"   📍 Branch: {branch_name}")
+            if HAS_RICH:
+                console.print(Panel(
+                    f"[bold green]✓ Changes committed[/bold green]\n\n"
+                    f"[cyan]Branch:[/cyan] {branch_name}\n"
+                    f"[cyan]Message:[/cyan] {commit_msg}\n"
+                    f"[dim]Working directory: {work_path}[/dim]",
+                    title="📦 Git Commit",
+                    border_style="green"
+                ))
+            else:
+                print(f"   ✅ Committed to branch '{branch_name}': {commit_msg}")
+                print(f"   📍 Branch: {branch_name}")
 
         except subprocess.CalledProcessError as e:
             print(f"   ⚠️  Git commit failed: {e}")
