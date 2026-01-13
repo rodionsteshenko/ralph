@@ -65,3 +65,5 @@ Thumbs.db
 
 # Exclude slack-agent subdirectory (it's its own repo)
 slack-agent/
+prd-*.json
+prd-*.md
