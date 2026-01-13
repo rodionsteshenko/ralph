@@ -125,8 +125,10 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "",
+      "actualDuration": 366.1060028076172,
+      "iterationNumber": 1
     },
     {
       "id": "US-008",
@@ -140,8 +142,10 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "",
+      "actualDuration": 389.71770000457764,
+      "iterationNumber": 1
     },
     {
       "id": "US-009",
@@ -156,11 +160,51 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "",
+      "actualDuration": 319.6064853668213,
+      "iterationNumber": 1
     },
     {
       "id": "US-010",
+      "title": "CLI Testing Interface",
+      "description": "As a developer, I need a CLI testing interface so I can test the agent loop without Slack complexity.",
+      "acceptanceCriteria": [
+        "Create `cli/chat.py` with command-line interface",
+        "Accept single message as argument: `python cli/chat.py \"Hello agent\"`",
+        "Return response to stdout (non-interactive mode)",
+        "Write debug logs to `logs/debug.log` with timestamp, input, memory state, tools called, response, execution time",
+        "Test basic agent loop: message input \u2192 MCP tools \u2192 memory access \u2192 response generation",
+        "One command \u2192 one response \u2192 exit (non-interactive)",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "",
+      "actualDuration": 366.0262758731842,
+      "iterationNumber": 1
+    },
+    {
+      "id": "US-010A",
+      "title": "CLI End-to-End Integration Tests",
+      "description": "As a developer, I need end-to-end tests for the CLI that verify real API integration so I can catch runtime issues before deployment.",
+      "acceptanceCriteria": [
+        "Create `tests/integration/test_cli_e2e.py` with end-to-end tests",
+        "Test real Anthropic API calls (skip if ANTHROPIC_API_KEY not set)",
+        "Test message processing with actual API responses",
+        "Test tool use cycle with real Claude responses",
+        "Verify debug logs are written correctly",
+        "Test error handling for API failures",
+        "Add markers: `@pytest.mark.e2e` and `@pytest.mark.skipif` for missing API key",
+        "Document how to run e2e tests in README",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "Critical: Unit tests use mocks and don't catch real API integration issues. Need e2e tests to verify actual functionality."
+    },
+    {
+      "id": "US-011",
       "title": "Memory MCP Tools",
       "description": "As an agent, I need memory tools exposed via MCP so I can access memory blocks.",
       "acceptanceCriteria": [
@@ -169,14 +213,16 @@
         "Tools registered with MCP server",
         "Tools call underlying memory block storage system",
         "Each tool returns structured result",
+        "Test via CLI interface to verify tools work",
+        "Add end-to-end test for memory tools with real API",
         "Typecheck passes"
       ],
-      "priority": 10,
+      "priority": 11,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-011",
+      "id": "US-012",
       "title": "Git Integration for State",
       "description": "As a developer, I need git integration so state changes are tracked.",
       "acceptanceCriteria": [
@@ -187,12 +233,12 @@
         "Add `.gitignore` for sensitive data",
         "Typecheck passes"
       ],
-      "priority": 11,
+      "priority": 12,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-012",
+      "id": "US-014",
       "title": "macOS Clipboard Monitoring",
       "description": "As an agent, I need to monitor macOS clipboard so I can ingest copied content.",
       "acceptanceCriteria": [
@@ -209,7 +255,7 @@
       "notes": ""
     },
     {
-      "id": "US-013",
+      "id": "US-014",
       "title": "Clipboard Content Ingestion",
       "description": "As an agent, I need to ingest clipboard content so it's searchable later.",
       "acceptanceCriteria": [
@@ -226,7 +272,7 @@
       "notes": ""
     },
     {
-      "id": "US-014",
+      "id": "US-015",
       "title": "Clipboard Embeddings and Vector Search",
       "description": "As an agent, I need vector embeddings for clipboard content so I can do similarity search.",
       "acceptanceCriteria": [
@@ -243,7 +289,7 @@
       "notes": ""
     },
     {
-      "id": "US-015",
+      "id": "US-016",
       "title": "Clipboard Search MCP Tools",
       "description": "As an agent, I need clipboard search tools so I can retrieve past clipboard content.",
       "acceptanceCriteria": [
@@ -259,7 +305,7 @@
       "notes": ""
     },
     {
-      "id": "US-016",
+      "id": "US-017",
       "title": "Slack Message Sending Tools",
       "description": "As an agent, I need tools to send messages to Slack so I can communicate with the user.",
       "acceptanceCriteria": [
@@ -275,7 +321,7 @@
       "notes": ""
     },
     {
-      "id": "US-017",
+      "id": "US-018",
       "title": "Slack History Retrieval Tools",
       "description": "As an agent, I need tools to retrieve Slack conversation history so I can provide context-aware responses.",
       "acceptanceCriteria": [
@@ -290,7 +336,7 @@
       "notes": ""
     },
     {
-      "id": "US-018",
+      "id": "US-019",
       "title": "Slack Event Processing",
       "description": "As a developer, I need robust Slack event processing so the bot responds to messages correctly.",
       "acceptanceCriteria": [
@@ -307,7 +353,7 @@
       "notes": ""
     },
     {
-      "id": "US-019",
+      "id": "US-020",
       "title": "People File Management",
       "description": "As an agent, I need to manage people files so I can track relationships and context.",
       "acceptanceCriteria": [
@@ -323,7 +369,7 @@
       "notes": ""
     },
     {
-      "id": "US-020",
+      "id": "US-021",
       "title": "People Management MCP Tools",
       "description": "As an agent, I need people management tools exposed via MCP so I can update person information.",
       "acceptanceCriteria": [
@@ -339,7 +385,7 @@
       "notes": ""
     },
     {
-      "id": "US-021",
+      "id": "US-022",
       "title": "Database Query MCP Tools",
       "description": "As an agent, I need database query tools so I can retrieve structured data.",
       "acceptanceCriteria": [
@@ -356,7 +402,7 @@
       "notes": ""
     },
     {
-      "id": "US-022",
+      "id": "US-023",
       "title": "User Preferences System",
       "description": "As an agent, I need to track user preferences so I can personalize responses.",
       "acceptanceCriteria": [
@@ -373,7 +419,7 @@
       "notes": ""
     },
     {
-      "id": "US-023",
+      "id": "US-024",
       "title": "Personality Traits System",
       "description": "As an agent, I need a personality traits system so I can maintain consistent behavior.",
       "acceptanceCriteria": [
@@ -390,7 +436,7 @@
       "notes": ""
     },
     {
-      "id": "US-024",
+      "id": "US-025",
       "title": "Event Logging System",
       "description": "As an agent, I need an event logging system so I can track all actions and events.",
       "acceptanceCriteria": [
@@ -406,7 +452,7 @@
       "notes": ""
     },
     {
-      "id": "US-025",
+      "id": "US-026",
       "title": "Logging MCP Tools",
       "description": "As an agent, I need logging tools exposed via MCP so I can log events.",
       "acceptanceCriteria": [
@@ -422,7 +468,7 @@
       "notes": ""
     },
     {
-      "id": "US-026",
+      "id": "US-027",
       "title": "Test Agent MCP Server Setup",
       "description": "As a developer, I need a separate Test Agent MCP server so it can test Main Agent independently.",
       "acceptanceCriteria": [
@@ -438,7 +484,7 @@
       "notes": ""
     },
     {
-      "id": "US-027",
+      "id": "US-028",
       "title": "Memory Cloning for Test Agent",
       "description": "As a Main Agent, I need to clone my memory blocks so Test Agent has context for testing.",
       "acceptanceCriteria": [
@@ -454,7 +500,7 @@
       "notes": ""
     },
     {
-      "id": "US-028",
+      "id": "US-029",
       "title": "Main Agent to Test Agent Communication",
       "description": "As a Main Agent, I need to send test requests to Test Agent so I can validate changes.",
       "acceptanceCriteria": [
@@ -470,7 +516,7 @@
       "notes": ""
     },
     {
-      "id": "US-029",
+      "id": "US-030",
       "title": "Test Agent Feedback System",
       "description": "As a Test Agent, I need to provide structured feedback so Main Agent can evaluate changes.",
       "acceptanceCriteria": [
@@ -486,7 +532,7 @@
       "notes": ""
     },
     {
-      "id": "US-030",
+      "id": "US-031",
       "title": "Test Agent Evaluation Tools",
       "description": "As a Main Agent, I need to evaluate Test Agent feedback so I can decide to accept or reject changes.",
       "acceptanceCriteria": [
@@ -502,7 +548,7 @@
       "notes": ""
     },
     {
-      "id": "US-031",
+      "id": "US-032",
       "title": "Git Repository Cloning",
       "description": "As a Main Agent, I need to clone my own repository so I can make changes safely.",
       "acceptanceCriteria": [
@@ -518,7 +564,7 @@
       "notes": ""
     },
     {
-      "id": "US-032",
+      "id": "US-033",
       "title": "Git Branch Management",
       "description": "As a Main Agent, I need to create and manage git branches so I can isolate changes.",
       "acceptanceCriteria": [
@@ -534,7 +580,7 @@
       "notes": ""
     },
     {
-      "id": "US-033",
+      "id": "US-034",
       "title": "Commit and PR Creation",
       "description": "As a Main Agent, I need to commit changes and create PRs so user can review my improvements.",
       "acceptanceCriteria": [
@@ -551,7 +597,7 @@
       "notes": ""
     },
     {
-      "id": "US-034",
+      "id": "US-035",
       "title": "Skill File Updates",
       "description": "As a Main Agent, I need to update skill files so I can modify my behavior.",
       "acceptanceCriteria": [
@@ -568,7 +614,7 @@
       "notes": ""
     },
     {
-      "id": "US-035",
+      "id": "US-036",
       "title": "Self-Modification MCP Tools",
       "description": "As a Main Agent, I need self-modification tools exposed via MCP so I can improve myself.",
       "acceptanceCriteria": [
@@ -583,7 +629,7 @@
       "notes": ""
     },
     {
-      "id": "US-036",
+      "id": "US-037",
       "title": "Job Scheduling System",
       "description": "As an agent, I need a job scheduling system so I can run periodic background tasks.",
       "acceptanceCriteria": [
@@ -599,7 +645,7 @@
       "notes": ""
     },
     {
-      "id": "US-037",
+      "id": "US-038",
       "title": "Scheduling MCP Tools",
       "description": "As an agent, I need scheduling tools exposed via MCP so I can manage background jobs.",
       "acceptanceCriteria": [
@@ -615,7 +661,7 @@
       "notes": ""
     },
     {
-      "id": "US-038",
+      "id": "US-039",
       "title": "Perch Time Implementation",
       "description": "As an agent, I need perch time behavior so I can proactively maintain state and research.",
       "acceptanceCriteria": [
@@ -632,7 +678,7 @@
       "notes": ""
     },
     {
-      "id": "US-039",
+      "id": "US-040",
       "title": "RSS Feed Management",
       "description": "As an agent, I need to manage RSS feeds so I can stay updated on relevant topics.",
       "acceptanceCriteria": [
@@ -648,7 +694,7 @@
       "notes": ""
     },
     {
-      "id": "US-040",
+      "id": "US-041",
       "title": "RSS Article Processing",
       "description": "As an agent, I need to process RSS articles so I can learn from them.",
       "acceptanceCriteria": [
@@ -665,7 +711,7 @@
       "notes": ""
     },
     {
-      "id": "US-041",
+      "id": "US-042",
       "title": "RSS MCP Tools",
       "description": "As an agent, I need RSS tools exposed via MCP so I can manage feeds and process articles.",
       "acceptanceCriteria": [
@@ -680,7 +726,7 @@
       "notes": ""
     },
     {
-      "id": "US-042",
+      "id": "US-043",
       "title": "Night-Time Research Scheduler",
       "description": "As an agent, I need a night-time research scheduler so I can learn during off-hours.",
       "acceptanceCriteria": [
@@ -696,7 +742,7 @@
       "notes": ""
     },
     {
-      "id": "US-043",
+      "id": "US-044",
       "title": "Self-Improvement Thinking Phase",
       "description": "As an agent, I need a thinking phase so I can analyze my behavior and plan improvements.",
       "acceptanceCriteria": [
@@ -713,7 +759,7 @@
       "notes": ""
     },
     {
-      "id": "US-044",
+      "id": "US-045",
       "title": "Self-Improvement Implementation Phase",
       "description": "As an agent, I need an implementation phase so I can make planned improvements.",
       "acceptanceCriteria": [
@@ -729,7 +775,7 @@
       "notes": ""
     },
     {
-      "id": "US-045",
+      "id": "US-046",
       "title": "Self-Improvement PR Creation",
       "description": "As an agent, I need to create PRs for improvements so user can review and approve.",
       "acceptanceCriteria": [
@@ -746,7 +792,7 @@
       "notes": ""
     },
     {
-      "id": "US-046",
+      "id": "US-047",
       "title": "Manual Self-Improvement Trigger",
       "description": "As a user, I need to manually trigger self-improvement so I can request improvements on-demand.",
       "acceptanceCriteria": [
@@ -762,7 +808,7 @@
       "notes": ""
     },
     {
-      "id": "US-047",
+      "id": "US-048",
       "title": "Integration Tests for Core Features",
       "description": "As a developer, I need integration tests so I can validate core features work correctly.",
       "acceptanceCriteria": [
@@ -779,7 +825,7 @@
       "notes": ""
     },
     {
-      "id": "US-048",
+      "id": "US-049",
       "title": "Test Agent Validation Suite",
       "description": "As a Test Agent, I need a test suite so I can validate Main Agent behavior consistently.",
       "acceptanceCriteria": [
@@ -795,7 +841,7 @@
       "notes": ""
     },
     {
-      "id": "US-049",
+      "id": "US-050",
       "title": "Configuration Management System",
       "description": "As a developer, I need a configuration management system so all settings are centralized.",
       "acceptanceCriteria": [
@@ -812,7 +858,7 @@
       "notes": ""
     },
     {
-      "id": "US-050",
+      "id": "US-051",
       "title": "Documentation and Deployment Guide",
       "description": "As a developer, I need comprehensive documentation so the system can be deployed and maintained.",
       "acceptanceCriteria": [
@@ -832,9 +878,9 @@
   ],
   "metadata": {
     "createdAt": "2026-01-13T09:57:05.204847",
-    "lastUpdatedAt": "2026-01-13T12:56:10.968902",
-    "totalStories": 50,
-    "completedStories": 6,
+    "lastUpdatedAt": "2026-01-13T15:00:00.000000",
+    "totalStories": 52,
+    "completedStories": 10,
     "currentIteration": 1
   }
 }

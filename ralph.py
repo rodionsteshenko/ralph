@@ -826,6 +826,14 @@ Be specific about why this story makes sense given the current codebase state an
         # Build prompt
         prompt = self._build_agent_prompt(story, context)
 
+        # Determine working directory for execution
+        working_dir = context.get('workingDirectory')
+        if working_dir:
+            work_path = Path.cwd() / working_dir
+            work_path.mkdir(parents=True, exist_ok=True)
+        else:
+            work_path = Path.cwd()
+
         # Create detailed log file for this story
         logs_dir = Path.cwd() / "logs"
         logs_dir.mkdir(exist_ok=True)
@@ -879,7 +887,7 @@ Be specific about why this story makes sense given the current codebase state an
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,  # Line buffered
-                    cwd=Path.cwd()
+                    cwd=work_path
                 )
                 
                 # Stream output in real-time and capture it
@@ -920,7 +928,7 @@ Be specific about why this story makes sense given the current codebase state an
                     ],
                     capture_output=True,
                     text=True,
-                    cwd=Path.cwd(),
+                    cwd=work_path,
                     timeout=self.config.get("ralph.iterationTimeout", 3600)
                 )
                 agent_output = result.stdout
@@ -1074,10 +1082,27 @@ Be specific about why this story makes sense given the current codebase state an
             working_dir_section = f"""
 ## Working Directory
 
-**IMPORTANT**: All code for this project must be created in the `{working_dir}/` subdirectory.
-- Create all files and directories inside `{working_dir}/`
-- This keeps the project code separate from the Ralph automation codebase
-- On first story (US-001), create the `{working_dir}/` directory if it doesn't exist
+**IMPORTANT**: You are currently running in the `{working_dir}/` directory.
+- All file paths are relative to this directory
+- When you create files, they will be in `{working_dir}/`
+- The project code is separate from the Ralph automation codebase
+- Use relative paths (e.g., `memory/blocks.py`, not `{working_dir}/memory/blocks.py`)
+"""
+
+        # Build completed stories context with more detail
+        completed_stories_context = ""
+        if context['prd'].get('completedStories'):
+            completed_stories_context = f"""
+## What's Already Built
+
+The following user stories have been completed and their code is in the codebase:
+{chr(10).join(f"- {story_id}" for story_id in context['prd']['completedStories'])}
+
+**IMPORTANT**: Before implementing, read the existing code to understand:
+- What patterns are being used
+- What utilities/helpers already exist
+- How similar features are implemented
+- What dependencies are available
 """
 
         return f"""You are an autonomous coding agent working on a software project.
@@ -1093,22 +1118,44 @@ Implement the following user story:
 **Acceptance Criteria**:
 {chr(10).join(f"- {c}" for c in story.get('acceptanceCriteria', []))}
 
-## Context
+## Project Context
 
 **Project**: {context['prd'].get('description', 'Unknown')}
-**Completed Stories**: {', '.join(context['prd']['completedStories']) or 'None'}
-**Remaining Stories**: {', '.join(context['prd']['remainingStories']) or 'None'}
+{completed_stories_context}
+**Remaining Stories**: {', '.join(context['prd']['remainingStories'][:10]) or 'None'}{' (and more...)' if len(context['prd']['remainingStories']) > 10 else ''}
 {progress_section}
 {agents_section}
 {working_dir_section}
 
-## Instructions
+## Implementation Strategy
 
-1. Read the codebase to understand the current structure
-2. Implement the user story according to the acceptance criteria
-3. Make sure all acceptance criteria are met
-4. Follow existing code patterns and conventions
-5. Write clean, maintainable code
+Follow this incremental approach:
+
+1. **Explore First** (5-10 minutes)
+   - Read existing codebase to understand structure and patterns
+   - Identify what utilities/helpers already exist
+   - Check what dependencies are available
+   - Understand how similar features are implemented
+
+2. **Plan Implementation** (2-3 minutes)
+   - Break down acceptance criteria into concrete tasks
+   - Identify which files need to be created/modified
+   - Determine what tests are needed
+   - Consider edge cases and error handling
+
+3. **Implement Incrementally** (iterative)
+   - Start with core functionality first
+   - Build one acceptance criterion at a time
+   - Test each piece as you build it
+   - Follow existing code patterns and conventions
+   - Keep files modular and focused (see file size guidance below)
+
+4. **Verify Quality** (before finishing)
+   - Run all acceptance criteria against your implementation
+   - Ensure code is clean and maintainable
+   - Check that tests exist and pass
+   - Verify type safety and error handling
+   - Check file sizes and refactor if needed (see file size guidance below)
 
 ## Auto-Installation of Missing Dependencies
 
@@ -1164,19 +1211,144 @@ which git || brew install git  # macOS
 
 **Always retry the original command after installation to verify it works.**
 
-## Quality Requirements
+## File Size and Modularity
 
-- All code must pass typecheck
-- All code must pass linting
-- All tests must pass
-- Follow existing code patterns
+**CRITICAL**: Keep code files small, focused, and maintainable.
 
-## Output
+### File Size Limits
+- **Maximum file size**: 500 lines (including imports, docstrings, and whitespace)
+- **Target file size**: 200-300 lines for most files
+- **If a file exceeds 500 lines**: Refactor it immediately into smaller modules
 
-After implementing, provide a brief summary of:
-- What was implemented
-- Files changed
-- Any learnings or patterns discovered
+### When to Split Files
+
+Split a file when:
+- It exceeds 500 lines
+- It contains multiple unrelated responsibilities
+- It has more than 5-7 classes or 10-15 functions
+- It handles multiple distinct concerns
+
+### How to Refactor Large Files
+
+1. **Identify logical groupings**: Group related functions/classes together
+2. **Extract into separate modules**: Create new files for each logical grouping
+3. **Use clear naming**: Module names should clearly indicate their purpose
+4. **Update imports**: Ensure all imports are updated correctly
+5. **Maintain public API**: Use `__init__.py` to re-export if needed
+
+### Examples of Good File Organization
+
+**Bad** (one large file):
+```
+slack_bot/client.py  (800 lines)
+- Socket mode connection
+- Event handlers
+- Message formatting
+- User management
+- Channel management
+- Error handling
+- Logging setup
+```
+
+**Good** (split into focused modules):
+```
+slack_bot/
+├── client.py           (150 lines) - Main client and connection
+├── events.py           (200 lines) - Event handlers
+├── formatting.py       (120 lines) - Message formatting
+├── users.py            (180 lines) - User management
+├── channels.py         (150 lines) - Channel management
+└── errors.py           (100 lines) - Error handling
+```
+
+### Proactive Refactoring
+
+**Before creating new code:**
+- Check if existing files in the area are approaching 500 lines
+- If so, refactor them first before adding new functionality
+- This prevents files from growing too large
+
+**When adding to existing files:**
+- Check current file size first
+- If adding would exceed 500 lines, refactor before adding
+- Consider if the new code belongs in a separate module
+
+### File Size Check
+
+Before finishing your implementation:
+1. Check line count of all modified/created files: `wc -l <file>`
+2. If any file exceeds 500 lines, refactor it into smaller modules
+3. Ensure each module has a single, clear responsibility
+4. Update all imports and ensure tests still pass
+
+## Quality Requirements & Testing
+
+**CRITICAL**: After implementation, your code will be tested with quality gates. All gates must pass.
+
+### Type Safety
+- Add type hints to all function signatures
+- Use strict typing (no `Any` unless absolutely necessary)
+- Ensure mypy/pyright passes with no errors
+- Import types from `typing` module as needed
+
+### Testing Strategy
+- **Unit tests**: Test individual functions and classes in isolation
+- **Integration tests**: Test how components work together
+- **Edge cases**: Test boundary conditions, empty inputs, error states
+- **Mock external dependencies**: Don't make real API calls or database connections in tests
+- Test file naming: `test_<module_name>.py` or `<module_name>_test.py`
+
+### Code Quality
+- Follow existing code patterns and conventions
+- Keep functions small and focused (< 50 lines)
+- Use descriptive variable and function names
+- Add docstrings for public functions and classes
+- Handle errors gracefully with try/except where appropriate
+- No commented-out code or debug print statements
+- Clean up imports (no unused imports)
+
+### Linting & Formatting
+- Code must pass linting (ruff, pylint, or project-specific linter)
+- Follow PEP 8 style guidelines
+- Use consistent formatting (spaces, line breaks, etc.)
+- Maximum line length: 100-120 characters
+
+### Self-Review Checklist
+
+Before finishing, verify:
+- [ ] All acceptance criteria are met
+- [ ] Type hints added to all functions
+- [ ] Tests written and passing
+- [ ] **All files are under 500 lines** (check with `wc -l`)
+- [ ] Large files refactored into smaller, focused modules
+- [ ] No obvious bugs or edge cases missed
+- [ ] Error handling is appropriate
+- [ ] Code follows existing patterns
+- [ ] No debug code or print statements left in
+- [ ] Documentation/comments added where needed
+
+## Output Format
+
+After implementing, provide a summary with:
+
+**✅ Implemented:**
+- List of acceptance criteria met
+- Key files created/modified
+- File sizes (line counts) for all new/modified code files
+
+**🧪 Tests:**
+- Test files created
+- Test coverage areas
+- How to run the tests
+
+**🔧 Refactoring:**
+- Any files that were split/refactored due to size
+- Any proactive refactoring done to keep files under 500 lines
+
+**📝 Notes:**
+- Any important patterns or decisions made
+- Dependencies added
+- Known limitations or future improvements needed
 
 Begin implementation now."""
     
