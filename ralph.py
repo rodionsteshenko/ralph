@@ -333,7 +333,14 @@ CRITICAL RULES:
 3. Acceptance criteria MUST be verifiable and objective (not vague)
 4. Every story MUST include "Typecheck passes" as final criterion
 5. UI stories MUST include "Verify in browser" as criterion
-6. Story size: If you can't describe it in 2-3 sentences, it's too big - split it
+6. **END-TO-END TESTING**: Stories with external integrations (APIs, databases, services) MUST include "End-to-end test with real [API/database/service] integration passes" in acceptance criteria
+7. Story size: If you can't describe it in 2-3 sentences, it's too big - split it
+
+**Examples of E2E acceptance criteria:**
+- "End-to-end test calling real Anthropic API passes"
+- "End-to-end test with real SQLite database passes"
+- "End-to-end test sending real Slack message passes (in test workspace)"
+- "Integration test with real file system operations passes"
 
 PRD Content:
 {prd_content}
@@ -1140,7 +1147,8 @@ Follow this incremental approach:
 2. **Plan Implementation** (2-3 minutes)
    - Break down acceptance criteria into concrete tasks
    - Identify which files need to be created/modified
-   - Determine what tests are needed
+   - **Determine what tests are needed (BOTH unit tests with mocks AND E2E tests with real integrations!)**
+   - Plan E2E tests FIRST - they verify actual functionality
    - Consider edge cases and error handling
 
 3. **Implement Incrementally** (iterative)
@@ -1152,8 +1160,9 @@ Follow this incremental approach:
 
 4. **Verify Quality** (before finishing)
    - Run all acceptance criteria against your implementation
+   - **Run E2E tests with real integrations (CRITICAL!) - this catches issues mocks miss**
    - Ensure code is clean and maintainable
-   - Check that tests exist and pass
+   - Check that both E2E tests and unit tests exist and pass
    - Verify type safety and error handling
    - Check file sizes and refactor if needed (see file size guidance below)
 
@@ -1292,11 +1301,41 @@ Before finishing your implementation:
 - Import types from `typing` module as needed
 
 ### Testing Strategy
-- **Unit tests**: Test individual functions and classes in isolation
-- **Integration tests**: Test how components work together
-- **Edge cases**: Test boundary conditions, empty inputs, error states
-- **Mock external dependencies**: Don't make real API calls or database connections in tests
-- Test file naming: `test_<module_name>.py` or `<module_name>_test.py`
+
+**CRITICAL**: You MUST implement BOTH unit tests AND end-to-end tests. E2E tests are the most important!
+
+#### 1. End-to-End (E2E) Tests - **REQUIRED**
+- **Purpose**: Verify the ACTUAL functionality works with real integrations
+- **What to test**: Full user-facing workflows with real external systems
+- **Examples**:
+  - CLI that calls Anthropic API → Test with REAL API calls
+  - Database operations → Test with REAL database
+  - File I/O → Test with REAL file system
+  - Network requests → Test with REAL endpoints (or local test servers)
+- **How to mark**: Use `@pytest.mark.e2e` decorator
+- **API Keys**: Use `@pytest.mark.skipif(not os.getenv('API_KEY'))` to skip if missing
+- **Critical**: E2E tests catch issues that mocks miss (model names, API changes, auth issues)
+
+#### 2. Unit Tests - Use Mocks
+- **Purpose**: Test individual functions and classes in isolation
+- **When to mock**: External APIs, databases, network calls (but only in unit tests!)
+- **Examples**: `@patch('anthropic.Anthropic')`, `@patch('requests.get')`
+
+#### 3. Integration Tests
+- **Purpose**: Test how components work together (but may still use test doubles)
+- **Examples**: Multiple modules interacting, data flowing through system
+
+#### 4. Edge Cases
+- **Purpose**: Test boundary conditions, empty inputs, error states
+
+**Test file naming**: `test_<module_name>.py` or `test_<feature>_e2e.py` for E2E tests
+
+**Running tests**:
+```bash
+pytest tests/              # Run all tests
+pytest tests/ -m e2e       # Run only E2E tests
+pytest tests/ -m "not e2e" # Run only unit/integration tests
+```
 
 ### Code Quality
 - Follow existing code patterns and conventions
@@ -1318,7 +1357,8 @@ Before finishing your implementation:
 Before finishing, verify:
 - [ ] All acceptance criteria are met
 - [ ] Type hints added to all functions
-- [ ] Tests written and passing
+- [ ] **END-TO-END TESTS written and passing** (with real integrations - CRITICAL!)
+- [ ] Unit tests written and passing (with mocks for external dependencies)
 - [ ] **All files are under 500 lines** (check with `wc -l`)
 - [ ] Large files refactored into smaller, focused modules
 - [ ] No obvious bugs or edge cases missed
@@ -1326,6 +1366,8 @@ Before finishing, verify:
 - [ ] Code follows existing patterns
 - [ ] No debug code or print statements left in
 - [ ] Documentation/comments added where needed
+
+**CRITICAL REMINDER**: If your feature calls external APIs, databases, or services, you MUST have E2E tests that verify it works with the REAL system. Mocked unit tests alone are NOT sufficient!
 
 ## Output Format
 
@@ -1337,9 +1379,10 @@ After implementing, provide a summary with:
 - File sizes (line counts) for all new/modified code files
 
 **🧪 Tests:**
-- Test files created
+- **E2E tests**: List E2E test files and what they verify (REQUIRED if feature has external integrations)
+- **Unit tests**: List unit test files and coverage
 - Test coverage areas
-- How to run the tests
+- How to run the tests (including how to run E2E tests with API keys)
 
 **🔧 Refactoring:**
 - Any files that were split/refactored due to size

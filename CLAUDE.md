@@ -177,6 +177,12 @@ Expected JSON format in `prd.json`:
 - Acceptance criteria must be verifiable
 - Every story should include "Typecheck passes"
 - UI stories should include "Verify in browser"
+- **CRITICAL: Stories with external integrations (APIs, databases) MUST include "End-to-end test with real [integration] passes"**
+
+**Why E2E testing is critical:**
+- Unit tests with mocks can pass while real integration fails
+- E2E tests catch real-world issues: wrong model names, auth failures, API changes
+- Ralph will now enforce E2E tests for any feature that uses external services
 
 ## Configuration Structure
 
