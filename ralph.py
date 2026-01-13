@@ -504,25 +504,114 @@ class QualityGates:
 
 class RalphLoop:
     """Main Ralph execution loop."""
-    
+
     def __init__(self, config: RalphConfig):
         self.config = config
         self.claude = get_anthropic_client()
         self.quality_gates = QualityGates(config)
         self.failure_count = 0
         self.last_story_id = None
-    
+        self.session_start_time = None
+        self.session_completed_stories = []  # Stories completed in this session
+        self.initial_completed_count = 0  # Stories completed before session started
+
+    def _print_session_summary(self, prd: Dict, iteration_count: int, prd_path: Path):
+        """Print comprehensive session summary at the end of execution."""
+        session_duration = time.time() - self.session_start_time if self.session_start_time else 0
+
+        # Get file changes from git
+        changed_files = []
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--name-only", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                changed_files = [f for f in result.stdout.strip().split('\n') if f]
+        except Exception:
+            pass
+
+        # Calculate stats
+        total_stories = len(prd["userStories"])
+        current_completed = sum(1 for s in prd["userStories"] if s.get("passes", False))
+        remaining_stories = total_stories - current_completed
+        session_completed_count = len(self.session_completed_stories)
+
+        # Print summary
+        print("\n" + "="*80)
+        print("📊 SESSION SUMMARY")
+        print("="*80)
+
+        # Session stats
+        hours = int(session_duration // 3600)
+        minutes = int((session_duration % 3600) // 60)
+        seconds = int(session_duration % 60)
+        duration_str = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
+
+        print(f"\n⏱️  Duration: {duration_str}")
+        print(f"🔄 Iterations: {iteration_count}")
+
+        # Stories completed this session
+        if session_completed_count > 0:
+            print(f"\n✅ Completed This Session ({session_completed_count} stories):")
+            for story_info in self.session_completed_stories:
+                print(f"   • {story_info['id']}: {story_info['title']} ({story_info['duration']:.1f}s)")
+        else:
+            print(f"\n⚠️  No stories completed this session")
+
+        # Files changed
+        if changed_files:
+            print(f"\n📝 Files Changed ({len(changed_files)} files):")
+            # Group by directory and show top 10
+            display_files = changed_files[:10]
+            for f in display_files:
+                print(f"   • {f}")
+            if len(changed_files) > 10:
+                print(f"   ... and {len(changed_files) - 10} more")
+
+        # Overall PRD status
+        print(f"\n📋 Overall Progress:")
+        print(f"   Total Stories: {total_stories}")
+        print(f"   Completed: {current_completed} ({100*current_completed//total_stories if total_stories > 0 else 0}%)")
+        print(f"   Remaining: {remaining_stories}")
+
+        if remaining_stories > 0:
+            print(f"\n📌 Next Stories to Complete:")
+            remaining = [s for s in prd["userStories"] if not s.get("passes", False)]
+            for story in remaining[:3]:  # Show next 3
+                print(f"   • {story['id']}: {story['title']}")
+            if len(remaining) > 3:
+                print(f"   ... and {len(remaining) - 3} more")
+
+        # Next steps
+        print(f"\n💡 Next Steps:")
+        if remaining_stories > 0:
+            print(f"   Run: python ralph.py execute-plan")
+            print(f"   Or: python ralph.py status")
+        else:
+            print(f"   All stories complete! Review and merge your changes.")
+
+        print("\n" + "="*80 + "\n")
+
     def execute(self, prd_path: Optional[Path] = None, max_iterations: Optional[int] = None):
         """Execute Ralph loop until completion or max iterations."""
         prd_path = prd_path or Path(self.config.get("paths.prdFile", "prd.json"))
-        
+
         if not prd_path.exists():
             raise FileNotFoundError(f"PRD file not found: {prd_path}")
-        
+
         # Load PRD
         with open(prd_path, 'r') as f:
             prd = json.load(f)
-        
+
+        # Track session start
+        self.session_start_time = time.time()
+
+        # Track initial state
+        self.initial_completed_count = sum(1 for s in prd["userStories"] if s.get("passes", False))
+
         max_iter = max_iterations or self.config.get("ralph.maxIterations", 20)
         max_failures = self.config.get("ralph.maxFailures", 3)
         
@@ -597,6 +686,12 @@ class RalphLoop:
             if success:
                 self.failure_count = 0  # Reset failure count on success
                 story["passes"] = True
+                # Track completed story in this session
+                self.session_completed_stories.append({
+                    "id": story["id"],
+                    "title": story["title"],
+                    "duration": iteration_duration
+                })
                 story["actualDuration"] = iteration_duration
                 story["iterationNumber"] = iteration
                 
@@ -620,24 +715,8 @@ class RalphLoop:
             # Brief pause between iterations
             time.sleep(2)
         
-        # Final status
-        completed = sum(1 for s in prd["userStories"] if s.get("passes", False))
-        total = len(prd["userStories"])
-
-        if HAS_RICH:
-            status_color = "green" if completed == total else "yellow" if completed > 0 else "red"
-            console.print("\n")
-            console.print(Panel(
-                f"[bold {status_color}]{completed}/{total} stories completed[/bold {status_color}]\n\n"
-                f"[cyan]Completed:[/cyan] {completed}\n"
-                f"[cyan]Remaining:[/cyan] {total - completed}\n"
-                f"[cyan]Iterations:[/cyan] {iteration}\n"
-                f"[dim]Logs directory: {Path.cwd() / 'logs'}[/dim]",
-                title="📊 Final Status",
-                border_style=status_color
-            ))
-        else:
-            print(f"\n📊 Final Status: {completed}/{total} stories completed")
+        # Print session summary
+        self._print_session_summary(prd, iteration, prd_path)
     
     def _select_next_story(self, stories: List[Dict], prd: Dict) -> Dict:
         """Select next story using AI analysis or simple priority-based selection."""
@@ -827,6 +906,9 @@ Be specific about why this story makes sense given the current codebase state an
     
     def _execute_story(self, story: Dict, prd: Dict, iteration: int) -> bool:
         """Execute a single story using Claude Code."""
+        # Track execution time for this story
+        story_start_time = time.time()
+
         # Build agent context
         context = self._build_context(story, prd)
 
@@ -984,6 +1066,9 @@ Be specific about why this story makes sense given the current codebase state an
                 f.write("\n" + "-" * 80 + "\n")
 
             if quality_result["status"] == "PASS":
+                # Calculate total story execution time
+                total_story_duration = time.time() - story_start_time
+
                 # Commit changes
                 self._commit_changes(story, prd)
 
@@ -1000,7 +1085,7 @@ Be specific about why this story makes sense given the current codebase state an
                     console.print(Panel(
                         f"[bold green]✓ Story {story['id']} completed successfully![/bold green]\n\n"
                         f"[cyan]Title:[/cyan] {story['title']}\n"
-                        f"[cyan]Total time:[/cyan] {quality_result['totalDuration']:.1f}s\n"
+                        f"[cyan]Total time:[/cyan] {total_story_duration:.1f}s\n"
                         f"[cyan]Log file:[/cyan] {detail_log}",
                         title="🎉 Success",
                         border_style="green"
