@@ -12,20 +12,18 @@ Ralph is an autonomous AI agent loop that executes user stories from PRDs (Produ
 
 ### Installation & Setup
 ```bash
-make install              # Install dependencies using UV package manager
-make install-dev          # Install dev dependencies (ruff, mypy, black, pytest)
-export ANTHROPIC_API_KEY=your_key_here  # Required for Claude API
+uv pip install -r requirements.txt  # Install dependencies using UV
 python ralph.py init      # Initialize .ralph/config.json
 ```
 
 ### Primary Workflow
 ```bash
-# 1. Process PRD markdown to structured JSON
+# 1. Process PRD document to structured JSON
 # For small PRDs (<10 stories):
-python ralph.py process-prd tasks/prd-feature.md [--output prd.json]
+python ralph.py process-prd tasks/prd-feature.txt [--output prd.json]
 
 # For large PRDs (10+ stories) - uses tool-based batching:
-python prd_builder.py tasks/prd-feature.md [--output prd.json]
+python prd_builder.py tasks/prd-feature.txt [--output prd.json]
 
 # 2. Execute the plan
 python ralph.py execute-plan [--max-iterations N] [--prd prd.json]
@@ -36,11 +34,10 @@ python ralph.py status [--prd prd.json]
 
 ### Development
 ```bash
-make format              # Format code with ruff
-make lint                # Run ruff + mypy
-make check               # Run format check + lint
-make clean               # Clean generated files
-make verify              # Verify installation
+ruff format             # Format code
+ruff check              # Run lint checks
+mypy .                  # Run type checks
+pytest                  # Run tests
 ```
 
 ## Architecture
@@ -54,7 +51,7 @@ The entire implementation lives in `ralph.py` (~900 lines). Key classes:
    - Creates required directories automatically
 
 2. **PRDParser** (lines 127-284)
-   - Converts markdown PRDs to structured `prd.json`
+   - Converts PRD documents to structured `prd.json`
    - Uses Claude API for parsing
    - Validates story sizing and dependencies
 
@@ -86,6 +83,11 @@ The entire implementation lives in `ralph.py` (~900 lines). Key classes:
    - Append to progress.txt
 7. Check stop conditions
 8. Repeat or exit
+9. On completion: Generate AI-powered feature summary
+   - What features were added (user-facing)
+   - How to test/verify them (specific commands)
+   - What's the practical impact
+   - What's still pending
 ```
 
 ### Stop Conditions
@@ -94,6 +96,15 @@ Ralph stops when:
 - Max iterations reached (if set, 0 = unlimited)
 - 3 consecutive failures (configurable)
 - Manual interrupt (Ctrl+C)
+
+### Session Summary
+After execution completes, Ralph prints a comprehensive summary:
+- **AI-Generated Feature Summary**: User-facing explanation of what was built and how to test it
+- **Technical Details**: Story IDs, durations, file changes
+- **Overall Progress**: Completion percentage, remaining stories
+- **Next Steps**: Commands to continue execution
+
+The AI feature summary translates technical story completions into practical, testable capabilities for the project owner.
 
 ## Key Design Patterns
 
@@ -177,6 +188,37 @@ Expected JSON format in `prd.json`:
 - Acceptance criteria must be verifiable
 - Every story should include "Typecheck passes"
 - UI stories should include "Verify in browser"
+- **CRITICAL: Stories with external integrations (APIs, databases) MUST include "End-to-end test with real [integration] passes"**
+
+**Why E2E testing is critical:**
+- Unit tests with mocks can pass while real integration fails
+- E2E tests catch real-world issues: wrong model names, auth failures, API changes
+- Ralph will now enforce E2E tests for any feature that uses external services
+
+**Story status values:**
+- `undefined/null` - Not started
+- `"in_progress"` - Currently being worked on (has `startedAt` timestamp)
+- `"completed"` - Finished successfully (`passes=true`)
+- `"skipped"` - Intentionally closed without completing (`passes=false`, has `skippedAt` timestamp)
+
+**Phase closure logic:**
+- A phase is "closed" when all stories have either `passes=true` OR `status="skipped"`
+- Closed phases show `[CLOSED]` badge in prd_viewer.py
+
+**PRD Management Tools:**
+```bash
+python prd_tools.py close-phase <prd_file> <phase_number>  # Mark all incomplete stories in phase as skipped
+python prd_tools.py skip-story <prd_file> <story_id>       # Mark a single story as skipped
+python prd_tools.py start-story <prd_file> <story_id>      # Mark story as in_progress
+python prd_tools.py in-progress <prd_file>                 # Show all in-progress stories
+python prd_tools.py clear-stale <prd_file> [--max-age-hours N]  # Clear stale in_progress status
+```
+
+**PRD Viewer:**
+```bash
+python prd_viewer.py prd.json           # Watch mode (auto-refresh)
+python prd_viewer.py prd.json --once    # Display once and exit
+```
 
 ## Configuration Structure
 
@@ -241,18 +283,11 @@ ralph/
 ├── ralph.py              # Single-file implementation (~900 lines)
 ├── pyproject.toml        # Python project metadata (uses UV)
 ├── requirements.txt      # anthropic>=0.34.0
-├── Makefile              # Build/dev commands (uses UV package manager)
 ├── prd.json              # Generated PRD (gitignored)
 ├── progress.txt          # Append-only progress log (gitignored)
 ├── .ralph/
 │   ├── config.json       # Configuration (customize per project)
 │   └── skills/          # Project-specific skills (future)
-├── AGENTS.md            # Codebase patterns for agents
-├── QUICKSTART.md        # 5-minute quick start guide
-├── README.md            # Project overview
-├── ralph_python_README.md  # Full documentation
-├── IMPLEMENTATION_SUMMARY.md  # Implementation details
-├── agent_prompt_template.md  # Prompt template docs
 └── archive/             # Archived runs
 ```
 
@@ -262,18 +297,7 @@ Uses **UV** package manager for fast Python installations:
 - Runtime: `anthropic>=0.34.0`
 - Dev: `ruff`, `mypy`, `black`, `pytest`
 
-Add dependencies to `requirements.txt` or `pyproject.toml` then run `make install`.
-
-## Anthropic API Key Setup
-
-Ralph tries multiple auth methods in order:
-1. `ANTHROPIC_API_KEY` environment variable
-2. `.env` file in project root
-3. `~/.anthropic_api_key` file
-4. `.ralph/config.json` → `anthropic.apiKey`
-5. `~/.claude.json` → `api_key`
-
-Get API key from: https://console.anthropic.com/settings/keys
+Add dependencies to `requirements.txt` or `pyproject.toml` then run `uv pip install -r requirements.txt`.
 
 ## Adding Quality Gates
 
@@ -293,7 +317,7 @@ Get API key from: https://console.anthropic.com/settings/keys
 ## Progress Logging
 
 Format in `progress.txt`:
-```markdown
+```text
 ## Iteration 1 - US-001 - 2024-01-01T12:00:00
 **Story**: Story title
 **Status**: ✅ PASSED
@@ -374,7 +398,7 @@ python prd_builder.py prd-large-project.md --output prd.json
 ```
 
 **How it works:**
-- Splits PRD markdown by user story headers (###  US-XXX)
+- Splits PRD content by user story headers (###  US-XXX)
 - Processes header first to extract project metadata
 - Processes stories in batches (5 per batch)
 - Each batch is a separate Claude API call with tools

@@ -34,13 +34,13 @@ Build a stateful Slack bot agent (single-user DM) that maintains persistent memo
 
 **Acceptance Criteria**:
 - Create `state/` directory structure:
-  - `state/inbox.md` - Unprocessed tasks
-  - `state/today.md` - Current priorities
-  - `state/commitments.md` - Deadlines
-  - `state/patterns.md` - Behavioral observations
+  - `state/inbox.txt` - Unprocessed tasks
+  - `state/today.txt` - Current priorities
+  - `state/commitments.txt` - Deadlines
+  - `state/patterns.txt` - Behavioral observations
   - `state/insights/` - Dated insight files
   - `state/research/` - Research outputs
-  - `state/people/` - People files (markdown)
+  - `state/people/` - People files (text)
   - `state/drafts/` - Work in progress
 - File management tools: `read_file`, `write_file`, `edit_file`, `list_files`, `grep`
 - Typecheck passes
@@ -253,8 +253,8 @@ Build a stateful Slack bot agent (single-user DM) that maintains persistent memo
 
 **Acceptance Criteria**:
 - Scheduler runs every 2 hours ("perch time")
-- Agent checks `state/inbox.md` for unprocessed tasks
-- Agent updates state files (`today.md`, `commitments.md`)
+- Agent checks `state/inbox.txt` for unprocessed tasks
+- Agent updates state files (`today.txt`, `commitments.txt`)
 - Agent only messages when meaningful (silence as default)
 - `schedule_job(name, cron, prompt)` tool schedules cron jobs
 - Typecheck passes
@@ -286,7 +286,7 @@ Build a stateful Slack bot agent (single-user DM) that maintains persistent memo
 **Description**: As a developer, I want the agent to do deep research during perch time so that it can provide valuable insights.
 
 **Acceptance Criteria**:
-- Agent researches topics from `state/inbox.md` or `state/research/`
+- Agent researches topics from `state/inbox.txt` or `state/research/`
 - Agent uses web search tools when needed
 - Agent synthesizes findings into insight files
 - Research stored in `state/research/` directory

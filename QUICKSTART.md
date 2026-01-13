@@ -9,52 +9,65 @@ Get Ralph running in 5 minutes.
 python --version
 
 # Install dependencies (uses UV for fast installation)
-make install
-# Or manually: uv pip install -r requirements.txt
-
-# Set API key
-export ANTHROPIC_API_KEY=your_key_here
+uv pip install -r requirements.txt
 ```
 
 ## Step 1: Create a PRD
 
-Create a markdown file with your feature description:
-
-```markdown
-# Task Priority Feature
-
-Add priority levels to tasks.
-
-## User Stories
-
-### US-001: Add priority field to database
-**Description**: As a developer, I need to store task priority.
-
-**Acceptance Criteria**:
-- Add priority column: 'high' | 'medium' | 'low' (default 'medium')
-- Generate and run migration
-- Typecheck passes
-
-### US-002: Display priority badge
-**Description**: As a user, I want to see task priority.
-
-**Acceptance Criteria**:
-- Show colored badge on task cards
-- Badge colors: red=high, yellow=medium, gray=low
-- Typecheck passes
-```
-
-Save as `tasks/prd-task-priority.md`
-
-## Step 2: Convert PRD to Plan
+Create a structured PRD file in JSON:
 
 ```bash
-python ralph.py process-prd tasks/prd-task-priority.md
+cat > prd.json << EOF
+{
+  "project": "Task Priority Feature",
+  "branchName": "ralph/task-priority",
+  "description": "Add priority levels to tasks.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add priority field to database",
+      "description": "As a developer, I need to store task priority.",
+      "acceptanceCriteria": [
+        "Add priority column: 'high' | 'medium' | 'low' (default 'medium')",
+        "Generate and run migration",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Display priority badge",
+      "description": "As a user, I want to see task priority.",
+      "acceptanceCriteria": [
+        "Show colored badge on task cards",
+        "Badge colors: red=high, yellow=medium, gray=low",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    }
+  ],
+  "metadata": {
+    "createdAt": "2024-01-01T12:00:00",
+    "lastUpdatedAt": "2024-01-01T12:00:00",
+    "totalStories": 2,
+    "completedStories": 0,
+    "currentIteration": 0
+  }
+}
+EOF
 ```
 
-This creates `prd.json` with structured user stories.
+If you prefer, you can also generate `prd.json` from a PRD document:
 
-## Step 3: Initialize Configuration (Optional)
+```bash
+python ralph.py process-prd tasks/prd-task-priority.txt
+```
+
+## Step 2: Initialize Configuration (Optional)
 
 ```bash
 python ralph.py init
@@ -89,7 +102,7 @@ Edit `.ralph/config.json` to match your project:
 }
 ```
 
-## Step 4: Run Ralph
+## Step 3: Run Ralph
 
 ```bash
 # With max iterations
@@ -129,11 +142,6 @@ Ralph stops when:
 
 ## Troubleshooting
 
-### "API key not set"
-```bash
-export ANTHROPIC_API_KEY=your_key_here
-```
-
 ### "Quality gates failing"
 Check your commands in `.ralph/config.json` match your project.
 
@@ -172,9 +180,7 @@ git config user.email "ralph@example.com"
 
 ## Next Steps
 
-- Read `ralph_python_README.md` for full documentation
-- Check `DESIGN.md` for architecture details
-- See `IMPLEMENTATION_SUMMARY.md` for implementation notes
+- Check the repository documentation for deeper details
 
 ## Tips
 

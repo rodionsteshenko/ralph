@@ -5,6 +5,8 @@ description = "Autonomous AI Agent Loop using Claude API"
 requires-python = ">=3.8"
 dependencies = [
     "anthropic>=0.34.0",
+    "Pillow>=10.0.0",
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]

@@ -14,7 +14,7 @@ A stateful Slack bot (single-user DM) that maintains persistent memory, tracks c
 - ✅ Three-tier memory system (Core/Indices/Files)
 - ✅ macOS clipboard monitoring & ingestion
 - ✅ Queryable database (SQLite)
-- ✅ People files (markdown format)
+- ✅ People files (text format)
 - ✅ Self-modification via git branches/PRs
 - ✅ Daily self-improvement cycle (night → morning PR)
 - ✅ Test Agent validation loop
@@ -41,8 +41,8 @@ A stateful Slack bot (single-user DM) that maintains persistent memory, tracks c
 - **Stop**: When PR is created
 
 ### File Formats
-- **People**: Markdown (`.md`) - Claude-friendly
-- **State files**: Markdown (`.md`)
+- **People**: Text (`.txt`) - Claude-friendly
+- **State files**: Text (`.txt`)
 - **Database**: SQLite for structured data
 - **Logs**: JSONL for queryable logs
 

@@ -239,28 +239,50 @@ def main():
         nargs="*",
         help="Additional arguments to pass to claude"
     )
-    
+    parser.add_argument(
+        "--show-prompt",
+        action="store_true",
+        help="Show the full prompt in output (default: hidden)"
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose output from Claude"
+    )
+
     args = parser.parse_args()
-    
+
     # Build claude command
-    cmd = ["claude", "--output-format", "stream-json", "--verbose"]
-    
+    cmd = ["claude", "--output-format", "stream-json"]
+
+    # --verbose is required when using -p with stream-json output format
+    if args.prompt or args.file or args.verbose:
+        cmd.append("--verbose")
+
     if args.prompt:
         cmd.extend(["-p", args.prompt])
     elif args.file:
         cmd.extend(["-f", args.file])
-    
+
     if args.model:
         cmd.extend(["--model", args.model])
-    
+
     if args.dangerously_skip_permissions:
         cmd.append("--dangerously-skip-permissions")
-    
+
     if args.extra_args:
         cmd.extend(args.extra_args)
-    
+
     # Run claude and process output
-    print_header(f"Running: {' '.join(cmd)}")
+    if args.show_prompt:
+        print_header(f"Running: {' '.join(cmd)}")
+    else:
+        # Show command without the prompt (which can be very long)
+        display_cmd = [c for c in cmd if c != args.prompt] if args.prompt else cmd
+        if args.prompt:
+            display_cmd = display_cmd[:-1]  # Remove the -p flag too
+            display_cmd.append("-p <prompt hidden>")
+        print_header(f"Running: {' '.join(display_cmd)}")
     print()
     
     try:
