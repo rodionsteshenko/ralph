@@ -86,6 +86,11 @@ The entire implementation lives in `ralph.py` (~900 lines). Key classes:
    - Append to progress.txt
 7. Check stop conditions
 8. Repeat or exit
+9. On completion: Generate AI-powered feature summary
+   - What features were added (user-facing)
+   - How to test/verify them (specific commands)
+   - What's the practical impact
+   - What's still pending
 ```
 
 ### Stop Conditions
@@ -94,6 +99,15 @@ Ralph stops when:
 - Max iterations reached (if set, 0 = unlimited)
 - 3 consecutive failures (configurable)
 - Manual interrupt (Ctrl+C)
+
+### Session Summary
+After execution completes, Ralph prints a comprehensive summary:
+- **AI-Generated Feature Summary**: User-facing explanation of what was built and how to test it
+- **Technical Details**: Story IDs, durations, file changes
+- **Overall Progress**: Completion percentage, remaining stories
+- **Next Steps**: Commands to continue execution
+
+The AI feature summary translates technical story completions into practical, testable capabilities for the project owner.
 
 ## Key Design Patterns
 

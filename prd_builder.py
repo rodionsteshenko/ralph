@@ -1,33 +1,58 @@
 #!/usr/bin/env python3
 """
-PRD Builder: Incrementally builds PRD JSON files using Claude with tools.
+PRD Builder: Incrementally builds PRD JSON files using Claude Code CLI.
 This allows processing large PRDs without hitting token limits or parsing issues.
 """
 
 import json
-import sys
+import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-try:
-    from anthropic import Anthropic
-except ImportError:
-    print("Error: anthropic package not installed. Run: make install")
-    sys.exit(1)
+
+def call_claude_code(prompt: str, model: str = "claude-sonnet-4-5-20250929", timeout: int = 300) -> str:
+    """Call Claude Code CLI and return the response text.
+
+    Uses Claude Code's existing OAuth authentication - no API key required.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "claude",
+                "--print",  # Output response only, no interactive mode
+                "--model", model,
+                "-p", prompt
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Claude Code failed with return code {result.returncode}: {result.stderr}")
+
+        return result.stdout.strip()
+    except FileNotFoundError:
+        raise RuntimeError(
+            "Claude Code CLI not found. Please install it:\n"
+            "  npm install -g @anthropic-ai/claude-code\n"
+            "Or see: https://claude.ai/code"
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"Claude Code timed out after {timeout} seconds")
 
 
 class PRDBuilder:
-    """Builds PRD JSON incrementally using Claude tool calls."""
+    """Builds PRD JSON incrementally using Claude Code CLI."""
 
-    def __init__(self, api_key: Optional[str] = None):
-        self.claude = Anthropic(api_key=api_key) if api_key else Anthropic()
+    def __init__(self):
         self.prd_data: Dict[str, Any] = {}
         self.user_stories: List[Dict[str, Any]] = []
 
     def _split_into_stories(self, content: str) -> List[str]:
         """Split PRD content into story sections."""
-        import re
         # Split on user story headers (US-XXX)
         pattern = r'###\s+(US-\d+:.*?)(?=###\s+US-\d+:|$)'
         matches = re.findall(pattern, content, re.DOTALL)
@@ -43,7 +68,7 @@ class PRDBuilder:
         return [header] + matches
 
     def build_from_markdown(self, prd_path: Path, output_path: Path, model: str = "claude-sonnet-4-5-20250929") -> Path:
-        """Build PRD JSON from markdown using tool calls."""
+        """Build PRD JSON from markdown using Claude Code CLI."""
 
         if not prd_path.exists():
             raise FileNotFoundError(f"PRD file not found: {prd_path}")
@@ -53,93 +78,16 @@ class PRDBuilder:
             prd_content = f.read()
 
         print(f"📄 Building PRD from: {prd_path}")
-        print(f"🤖 Using Claude {model} with tools...")
-
-        # Define tools for PRD construction
-        tools = [
-            {
-                "name": "initialize_prd",
-                "description": "Initialize the PRD with project metadata. Call this first before adding any user stories.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "project": {
-                            "type": "string",
-                            "description": "Project name"
-                        },
-                        "branch_name": {
-                            "type": "string",
-                            "description": "Git branch name (e.g., 'ralph/feature-name')"
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Project description"
-                        }
-                    },
-                    "required": ["project", "branch_name", "description"]
-                }
-            },
-            {
-                "name": "add_user_story",
-                "description": "Add a user story to the PRD. Call this for each user story found in the document.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": "Story ID (e.g., 'US-001')"
-                        },
-                        "title": {
-                            "type": "string",
-                            "description": "Story title"
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Story description (As a..., I want..., so that...)"
-                        },
-                        "acceptance_criteria": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of acceptance criteria"
-                        },
-                        "priority": {
-                            "type": "integer",
-                            "description": "Story priority (1 = highest)"
-                        }
-                    },
-                    "required": ["id", "title", "description", "acceptance_criteria", "priority"]
-                }
-            },
-            {
-                "name": "finalize_prd",
-                "description": "Finalize the PRD after all stories have been added. Call this last.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }
-            }
-        ]
+        print(f"🤖 Using Claude Code ({model})...")
 
         # Split PRD into sections by user story headers
         story_sections = self._split_into_stories(prd_content)
 
-        print(f"   Found {len(story_sections)} user story sections to process")
+        print(f"   Found {len(story_sections)} sections to process")
 
-        # Build initial prompt for metadata
+        # Step 1: Extract metadata from header
         header_section = story_sections[0] if story_sections else prd_content[:2000]
-
-        prompt = f"""You are a PRD parser. Extract the project metadata from this PRD header.
-
-Call initialize_prd() with the project name, branch name, and description from this content:
-
-{header_section}
-
-Just call initialize_prd() now - we'll add stories in subsequent steps."""
-
-        # Step 1: Initialize PRD
-        messages = [{"role": "user", "content": prompt}]
-        self._process_tools_until_done(model, tools, messages)
+        self._extract_metadata(header_section, model)
 
         # Step 2: Process stories in batches
         story_batch_size = 5
@@ -152,22 +100,7 @@ Just call initialize_prd() now - we'll add stories in subsequent steps."""
 
             print(f"   Processing batch {batch_num}/{total_batches} ({len(batch)} stories)...")
 
-            batch_content = "\n\n".join(batch)
-            batch_prompt = f"""Extract and add these user stories using add_user_story() tool.
-
-Stories to add:
-
-{batch_content}
-
-Call add_user_story() for each story above."""
-
-            messages = [{"role": "user", "content": batch_prompt}]
-            self._process_tools_until_done(model, tools, messages)
-
-        # Step 3: Finalize
-        print("   Finalizing PRD...")
-        messages = [{"role": "user", "content": "Now call finalize_prd() to complete the PRD."}]
-        self._process_tools_until_done(model, tools, messages)
+            self._process_story_batch(batch, model)
 
         # Build final PRD JSON
         prd_json = {
@@ -193,89 +126,95 @@ Call add_user_story() for each story above."""
 
         return output_path
 
-    def _process_tools_until_done(self, model: str, tools: List[Dict], messages: List[Dict]) -> None:
-        """Process tool calls until completion."""
-        while True:
-            response = self.claude.messages.create(
-                model=model,
-                max_tokens=8192,  # Sonnet 4.5 max output tokens
-                tools=tools,
-                messages=messages
-            )
+    def _extract_metadata(self, header_content: str, model: str) -> None:
+        """Extract project metadata from PRD header."""
+        prompt = f"""Extract the project metadata from this PRD header and return ONLY a JSON object.
 
-            # Process tool calls
-            if response.stop_reason == "tool_use":
-                # Add assistant response to messages
-                messages.append({"role": "assistant", "content": response.content})
+PRD Header:
+{header_content}
 
-                # Process each tool call
-                tool_results = []
-                for content_block in response.content:
-                    if content_block.type == "tool_use":
-                        tool_name = content_block.name
-                        tool_input = content_block.input
-                        tool_id = content_block.id
+Return a JSON object with exactly these fields:
+{{
+  "project": "Project name from the PRD",
+  "branch_name": "Git branch name like ralph/feature-name",
+  "description": "Project description from the PRD"
+}}
 
-                        print(f"  🔧 {tool_name}({list(tool_input.keys())[0] if tool_input else ''}...)")
+Return ONLY the JSON object, no other text."""
 
-                        # Execute tool
-                        result = self._execute_tool(tool_name, tool_input)
+        response = call_claude_code(prompt, model=model, timeout=120)
 
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": tool_id,
-                            "content": json.dumps(result)
-                        })
-
-                # Add tool results to messages
-                messages.append({"role": "user", "content": tool_results})
-
-            elif response.stop_reason == "end_turn":
-                # Done processing
-                break
-            else:
-                print(f"⚠️  Unexpected stop reason: {response.stop_reason}")
-                break
-
-    def _execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a PRD building tool."""
-
-        if tool_name == "initialize_prd":
-            self.prd_data = {
-                "project": tool_input["project"],
-                "branch_name": tool_input["branch_name"],
-                "description": tool_input["description"]
-            }
-            return {"status": "success", "message": "PRD initialized"}
-
-        elif tool_name == "add_user_story":
-            story = {
-                "id": tool_input["id"],
-                "title": tool_input["title"],
-                "description": tool_input["description"],
-                "acceptanceCriteria": tool_input["acceptance_criteria"],
-                "priority": tool_input["priority"],
-                "passes": False,
-                "notes": ""
-            }
-            self.user_stories.append(story)
-            return {"status": "success", "message": f"Added story {tool_input['id']}"}
-
-        elif tool_name == "finalize_prd":
-            return {
-                "status": "success",
-                "message": f"PRD finalized with {len(self.user_stories)} stories"
-            }
-
+        # Extract JSON from response
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            try:
+                self.prd_data = json.loads(json_match.group())
+                print(f"  🔧 Initialized: {self.prd_data.get('project', 'Unknown')}")
+            except json.JSONDecodeError as e:
+                print(f"  ⚠️  Failed to parse metadata JSON: {e}")
+                self.prd_data = {"project": "Unknown", "branch_name": "main", "description": ""}
         else:
-            return {"status": "error", "message": f"Unknown tool: {tool_name}"}
+            print("  ⚠️  No JSON found in metadata response")
+            self.prd_data = {"project": "Unknown", "branch_name": "main", "description": ""}
+
+    def _process_story_batch(self, stories: List[str], model: str) -> None:
+        """Process a batch of user stories."""
+        batch_content = "\n\n---\n\n".join(stories)
+
+        prompt = f"""Extract user stories from the following content and return a JSON array.
+
+Content:
+{batch_content}
+
+Return a JSON array where each story has this structure:
+[
+  {{
+    "id": "US-XXX",
+    "title": "Story title",
+    "description": "As a..., I want..., so that...",
+    "acceptance_criteria": ["criterion 1", "criterion 2"],
+    "priority": 1
+  }}
+]
+
+Rules:
+- Extract the story ID from the header (US-XXX format)
+- Include all acceptance criteria as an array
+- Priority should be based on the order in the document (1 = first)
+- If "Typecheck passes" is not in acceptance criteria, add it
+
+Return ONLY the JSON array, no other text."""
+
+        response = call_claude_code(prompt, model=model, timeout=180)
+
+        # Extract JSON array from response
+        json_match = re.search(r'\[.*\]', response, re.DOTALL)
+        if json_match:
+            try:
+                parsed_stories = json.loads(json_match.group())
+                for story_data in parsed_stories:
+                    story = {
+                        "id": story_data.get("id", f"US-{len(self.user_stories) + 1:03d}"),
+                        "title": story_data.get("title", "Unknown"),
+                        "description": story_data.get("description", ""),
+                        "acceptanceCriteria": story_data.get("acceptance_criteria", []),
+                        "priority": story_data.get("priority", len(self.user_stories) + 1),
+                        "passes": False,
+                        "notes": ""
+                    }
+                    self.user_stories.append(story)
+                    print(f"    ✓ Added {story['id']}: {story['title'][:50]}...")
+            except json.JSONDecodeError as e:
+                print(f"  ⚠️  Failed to parse stories JSON: {e}")
+        else:
+            print("  ⚠️  No JSON array found in response")
 
 
 def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Build PRD JSON from markdown using Claude tools")
+    parser = argparse.ArgumentParser(description="Build PRD JSON from markdown using Claude Code")
     parser.add_argument("prd_file", type=Path, help="Path to PRD markdown file")
     parser.add_argument("--output", "-o", type=Path, default=None, help="Output JSON file path")
     parser.add_argument("--model", "-m", default="claude-sonnet-4-5-20250929", help="Claude model to use")

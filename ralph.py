@@ -34,13 +34,6 @@ except ImportError:
     HAS_RICH = False
     console = None
 
-try:
-    from anthropic import Anthropic
-except ImportError:
-    print("Error: anthropic package not installed. Run: make install")
-    print("Or manually: uv pip install -r requirements.txt")
-    sys.exit(1)
-
 # Try to import ASCII art display (optional dependency)
 try:
     from ascii_image import display_ascii_image
@@ -49,88 +42,36 @@ except ImportError:
     HAS_ASCII_ART = False
 
 
-def get_anthropic_client():
-    """Get Anthropic client, trying multiple authentication methods."""
-    api_key = None
-    
-    # First, try explicit API key from environment
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if api_key:
-        return Anthropic(api_key=api_key)
-    
-    # Try to read from .env file in project root
-    env_file = Path.cwd() / ".env"
-    if env_file.exists():
-        try:
-            with open(env_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("ANTHROPIC_API_KEY="):
-                        api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        if api_key:
-                            return Anthropic(api_key=api_key)
-        except Exception:
-            pass
-    
-    # Try to read from home directory .anthropic_api_key file
-    api_key_file = Path.home() / ".anthropic_api_key"
-    if api_key_file.exists():
-        try:
-            with open(api_key_file, 'r') as f:
-                api_key = f.read().strip()
-                if api_key:
-                    return Anthropic(api_key=api_key)
-        except Exception:
-            pass
-    
-    # Try to read from Ralph config file
-    ralph_config_path = Path.cwd() / ".ralph" / "config.json"
-    if ralph_config_path.exists():
-        try:
-            with open(ralph_config_path, 'r') as f:
-                ralph_config = json.load(f)
-                if "anthropic" in ralph_config and "apiKey" in ralph_config["anthropic"]:
-                    api_key = ralph_config["anthropic"]["apiKey"]
-                    if api_key:
-                        return Anthropic(api_key=api_key)
-        except Exception:
-            pass
-    
-    # Try to read from Claude config file (if it contains API key)
-    claude_config_path = Path.home() / ".claude.json"
-    if claude_config_path.exists():
-        try:
-            with open(claude_config_path, 'r') as f:
-                claude_config = json.load(f)
-                if "api_key" in claude_config:
-                    return Anthropic(api_key=claude_config["api_key"])
-                if "apiKey" in claude_config:
-                    return Anthropic(api_key=claude_config["apiKey"])
-        except Exception:
-            pass  # Continue to try other methods
-    
-    # If we still don't have an API key, provide helpful error message
-    print("Error: Could not find Anthropic API key.")
-    print("")
-    print("The Anthropic Python SDK requires an explicit API key.")
-    print("Even though you're logged into Claude Code, you need to get your API key separately.")
-    print("")
-    print("Options:")
-    print("1. Get your API key from: https://console.anthropic.com/settings/keys")
-    print("2. Set it as an environment variable:")
-    print("   export ANTHROPIC_API_KEY=your_key_here")
-    print("")
-    print("3. Create a .env file in the project root with:")
-    print("   ANTHROPIC_API_KEY=your_key_here")
-    print("")
-    print("4. Create ~/.anthropic_api_key file with your API key")
-    print("")
-    print("5. Add it to .ralph/config.json:")
-    print('   {"anthropic": {"apiKey": "your_key_here"}}')
-    print("")
-    print("Note: Claude Code uses OAuth authentication which is separate from the API key.")
-    print("The API key is needed for programmatic access via the Python SDK.")
-    raise ValueError("ANTHROPIC_API_KEY not found")
+def call_claude_code(prompt: str, model: str = "claude-sonnet-4-5-20250929", timeout: int = 300) -> str:
+    """Call Claude Code CLI and return the response text.
+
+    Uses Claude Code's existing OAuth authentication - no API key required.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "claude",
+                "--print",  # Output response only, no interactive mode
+                "--model", model,
+                "-p", prompt
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Claude Code failed with return code {result.returncode}: {result.stderr}")
+
+        return result.stdout.strip()
+    except FileNotFoundError:
+        raise RuntimeError(
+            "Claude Code CLI not found. Please install it:\n"
+            "  npm install -g @anthropic-ai/claude-code\n"
+            "Or see: https://claude.ai/code"
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"Claude Code timed out after {timeout} seconds")
 
 
 class RalphConfig:
@@ -231,45 +172,31 @@ class RalphConfig:
 
 class PRDParser:
     """Parse PRD markdown files and convert to prd.json format."""
-    
+
     def __init__(self, config: RalphConfig):
         self.config = config
-        self.claude = get_anthropic_client()
-    
+
     def parse_prd(self, prd_path: Path, output_path: Optional[Path] = None) -> Path:
         """Parse PRD markdown and convert to prd.json."""
         if not prd_path.exists():
             raise FileNotFoundError(f"PRD file not found: {prd_path}")
-        
+
         output_path = output_path or Path(self.config.get("paths.prdFile", "prd.json"))
-        
+
         # Read PRD content
         with open(prd_path, 'r') as f:
             prd_content = f.read()
-        
+
         # Use Claude to convert PRD to structured JSON
         prompt = self._build_parser_prompt(prd_content)
-        
+
         print(f"📄 Parsing PRD: {prd_path}")
-        print("🤖 Using Claude to extract user stories...")
-        
-        model = self.config.get("claude.model", "claude-3-haiku-20240307")
-        # Adjust max_tokens based on model (Haiku has lower limit)
-        default_max_tokens = 4096 if "haiku" in model.lower() else 8192
-        max_tokens = min(self.config.get("claude.maxTokens", default_max_tokens), default_max_tokens)
-        
-        response = self.claude.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=0.3,  # Lower temperature for more structured output
-            messages=[{
-                "role": "user",
-                "content": prompt
-            }]
-        )
-        
-        # Extract JSON from response
-        response_text = response.content[0].text
+        print("🤖 Using Claude Code to extract user stories...")
+
+        model = self.config.get("claude.model", "claude-sonnet-4-5-20250929")
+
+        # Call Claude Code CLI (uses OAuth, no API key needed)
+        response_text = call_claude_code(prompt, model=model, timeout=300)
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         
         if json_match:
@@ -505,9 +432,9 @@ class QualityGates:
 class RalphLoop:
     """Main Ralph execution loop."""
 
-    def __init__(self, config: RalphConfig):
+    def __init__(self, config: RalphConfig, verbose: bool = False):
         self.config = config
-        self.claude = get_anthropic_client()
+        self.verbose = verbose
         self.quality_gates = QualityGates(config)
         self.failure_count = 0
         self.last_story_id = None
@@ -515,7 +442,78 @@ class RalphLoop:
         self.session_completed_stories = []  # Stories completed in this session
         self.initial_completed_count = 0  # Stories completed before session started
 
-    def _print_session_summary(self, prd: Dict, iteration_count: int, prd_path: Path):
+    def _generate_feature_summary(self, completed_stories: List[Dict], remaining_stories: List[Dict], prd: Dict) -> str:
+        """Generate AI-powered feature summary of what was built and what's testable."""
+        if not completed_stories:
+            return ""
+
+        try:
+            # Build context for Claude
+            completed_details = []
+            for story_info in completed_stories:
+                # Find full story details from PRD
+                full_story = next((s for s in prd["userStories"] if s["id"] == story_info["id"]), None)
+                if full_story:
+                    completed_details.append({
+                        "id": full_story["id"],
+                        "title": full_story["title"],
+                        "description": full_story.get("description", ""),
+                        "acceptanceCriteria": full_story.get("acceptanceCriteria", [])
+                    })
+
+            # Build remaining stories context (limited)
+            remaining_details = []
+            for story in remaining_stories[:5]:  # Only first 5 for context
+                remaining_details.append({
+                    "id": story["id"],
+                    "title": story["title"]
+                })
+
+            prompt = f"""You are summarizing a software development session for the PROJECT OWNER.
+
+## Project Context
+**Project**: {prd.get('project', 'Unknown')}
+**Description**: {prd.get('description', '')}
+
+## Stories Completed This Session
+{json.dumps(completed_details, indent=2)}
+
+## Remaining Stories (Next Up)
+{json.dumps(remaining_details, indent=2) if remaining_details else "All stories completed!"}
+
+## Your Task
+Write a concise, user-friendly summary that answers:
+1. **What features were added?** (in plain language, not technical jargon)
+2. **What can the user test/try right now?** (specific commands, actions, or ways to verify)
+3. **What's the practical impact?** (what can they do now that they couldn't before)
+4. **What's still pending?** (high-level feature areas, not story IDs)
+
+## Guidelines
+- Use conversational language ("You can now..." not "Story US-001 implements...")
+- Focus on USER-FACING changes and capabilities
+- Be specific about how to test/verify (include actual commands if applicable)
+- Keep it concise (4-8 bullet points max)
+- If CLI commands exist, show them
+- If it's infrastructure work with no immediate user impact, explain what it enables
+- Emphasize what's TESTABLE right now vs what's coming later
+
+## Output Format
+Return ONLY the summary text (no JSON, no markdown headers). Use emoji sparingly for visual clarity.
+Start with "🎯 FEATURES ADDED THIS SESSION" and then bullet points.
+End with a "What's Next" section if there are remaining stories."""
+
+            # Call Claude Code CLI (uses OAuth, no API key needed)
+            model = self.config.get("claude.model", "claude-sonnet-4-5-20250929")
+            response_text = call_claude_code(prompt, model=model, timeout=120)
+
+            return response_text
+
+        except Exception as e:
+            # If AI summary fails, return empty string (fall back to mechanical summary)
+            print(f"   ⚠️  Could not generate feature summary: {e}")
+            return ""
+
+    def _print_session_summary(self, prd: Dict, iteration_count: int, _prd_path: Path):
         """Print comprehensive session summary at the end of execution."""
         session_duration = time.time() - self.session_start_time if self.session_start_time else 0
 
@@ -539,6 +537,16 @@ class RalphLoop:
         remaining_stories = total_stories - current_completed
         session_completed_count = len(self.session_completed_stories)
 
+        # Generate AI feature summary first if we completed stories
+        feature_summary = ""
+        if session_completed_count > 0:
+            remaining = [s for s in prd["userStories"] if not s.get("passes", False)]
+            feature_summary = self._generate_feature_summary(
+                self.session_completed_stories,
+                remaining,
+                prd
+            )
+
         # Print summary
         print("\n" + "="*80)
         print("📊 SESSION SUMMARY")
@@ -553,7 +561,13 @@ class RalphLoop:
         print(f"\n⏱️  Duration: {duration_str}")
         print(f"🔄 Iterations: {iteration_count}")
 
-        # Stories completed this session
+        # Print AI-generated feature summary if available
+        if feature_summary:
+            print("\n" + "-"*80)
+            print(feature_summary)
+            print("-"*80)
+
+        # Stories completed this session (technical details)
         if session_completed_count > 0:
             print(f"\n✅ Completed This Session ({session_completed_count} stories):")
             for story_info in self.session_completed_stories:
@@ -844,22 +858,10 @@ Respond with ONLY a JSON object in this exact format:
 
 Be specific about why this story makes sense given the current codebase state and dependencies."""
 
-        # Call Claude API
+        # Call Claude Code CLI (uses OAuth, no API key needed)
         model = self.config.get("claude.model", "claude-sonnet-4-5-20250929")
-        max_tokens = self.config.get("claude.maxTokens", 8192)
-        
-        response = self.claude.messages.create(
-            model=model,
-            max_tokens=min(max_tokens, 2048),  # Limit for selection task
-            temperature=0.3,  # Lower temperature for more consistent selection
-            messages=[{
-                "role": "user",
-                "content": prompt
-            }]
-        )
-        
-        # Parse response
-        response_text = response.content[0].text
+
+        response_text = call_claude_code(prompt, model=model, timeout=120)
         
         # Extract JSON from response (handle multi-line JSON)
         json_match = re.search(r'\{[^{}]*"selectedStoryId"[^{}]*"reasoning"[^{}]*\}', response_text, re.DOTALL)
@@ -991,8 +993,11 @@ Be specific about why this story makes sense given the current codebase state an
                     str(script_path),
                     "--dangerously-skip-permissions",
                     "--model", self.config.get("claude.model", "claude-sonnet-4-5-20250929"),
-                    "-p", prompt
                 ]
+                # Add verbose flags if requested
+                if self.verbose:
+                    cmd.extend(["--verbose", "--show-prompt"])
+                cmd.extend(["-p", prompt])
                 
                 # Use Popen to stream output in real-time while also capturing it
                 process = subprocess.Popen(
@@ -1660,7 +1665,7 @@ Begin implementation now."""
             f.write(f"\n**Agent Output**:\n```\n{agent_output[:500]}...\n```\n")
             f.write(f"\n---\n")
     
-    def _update_agents_md(self, story: Dict, agent_output: str):
+    def _update_agents_md(self, _story: Dict, _agent_output: str):
         """Update agents.md files with learnings."""
         # This is a simplified version - in practice, you'd parse agent_output
         # to extract learnings and update relevant agents.md files
@@ -1684,6 +1689,7 @@ def main():
     exec_parser.add_argument("--max-iterations", type=int, help="Max iterations (0 = unlimited)")
     exec_parser.add_argument("--phase", type=int, help="Execute only stories in this phase (e.g., 1, 2, 3)")
     exec_parser.add_argument("--config", type=Path, help="Path to config file")
+    exec_parser.add_argument("--verbose", "-v", action="store_true", help="Show verbose output including full prompts")
     
     # status command
     status_parser = subparsers.add_parser("status", help="Show Ralph status")
@@ -1709,7 +1715,8 @@ def main():
         parser.parse_prd(args.prd_file, args.output)
     
     elif args.command == "execute-plan":
-        loop = RalphLoop(config)
+        verbose = args.verbose if hasattr(args, 'verbose') else False
+        loop = RalphLoop(config, verbose=verbose)
         phase = args.phase if hasattr(args, 'phase') else None
         loop.execute(args.prd, args.max_iterations, phase=phase)
     
