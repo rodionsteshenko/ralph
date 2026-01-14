@@ -595,8 +595,14 @@ class RalphLoop:
 
         print("\n" + "="*80 + "\n")
 
-    def execute(self, prd_path: Optional[Path] = None, max_iterations: Optional[int] = None):
-        """Execute Ralph loop until completion or max iterations."""
+    def execute(self, prd_path: Optional[Path] = None, max_iterations: Optional[int] = None, phase: Optional[int] = None):
+        """Execute Ralph loop until completion or max iterations.
+
+        Args:
+            prd_path: Path to prd.json file
+            max_iterations: Maximum number of iterations (0 = unlimited)
+            phase: Only execute stories in this phase (None = all incomplete stories)
+        """
         prd_path = prd_path or Path(self.config.get("paths.prdFile", "prd.json"))
 
         if not prd_path.exists():
@@ -614,7 +620,7 @@ class RalphLoop:
 
         max_iter = max_iterations or self.config.get("ralph.maxIterations", 20)
         max_failures = self.config.get("ralph.maxFailures", 3)
-        
+
         # Display Ralph ASCII art if available
         if HAS_ASCII_ART:
             ralph_image_path = Path(__file__).parent / "ralph.jpg"
@@ -630,11 +636,24 @@ class RalphLoop:
                 except Exception as e:
                     # If ASCII art fails, just continue without it
                     pass
-        
+
+        # Display phase info if filtering by phase
+        phase_info = ""
+        if phase is not None:
+            phase_metadata = prd.get("metadata", {}).get("phases", {}).get(str(phase), {})
+            phase_name = phase_metadata.get("name", f"Phase {phase}")
+            phase_info = f"\n   🎯 Phase Filter: {phase} ({phase_name})"
+
         print(f"\n🚀 Starting Ralph Loop")
         print(f"   Max iterations: {max_iter if max_iter > 0 else 'unlimited'}")
         print(f"   Max consecutive failures: {max_failures}")
-        print(f"   Stories to complete: {len([s for s in prd['userStories'] if not s.get('passes', False)])}\n")
+
+        # Count stories to complete (with optional phase filter)
+        stories_to_complete = [s for s in prd['userStories'] if not s.get('passes', False)]
+        if phase is not None:
+            stories_to_complete = [s for s in stories_to_complete if s.get('phase') == phase]
+
+        print(f"   Stories to complete: {len(stories_to_complete)}{phase_info}\n")
         
         iteration = 0
         
@@ -646,10 +665,16 @@ class RalphLoop:
                 print(f"\n⚠️  Max iterations ({max_iter}) reached")
                 break
             
-            # Check for remaining stories
+            # Check for remaining stories (with optional phase filter)
             remaining_stories = [s for s in prd["userStories"] if not s.get("passes", False)]
+            if phase is not None:
+                remaining_stories = [s for s in remaining_stories if s.get("phase") == phase]
+
             if not remaining_stories:
-                print("\n✅ All stories completed!")
+                if phase is not None:
+                    print(f"\n✅ All Phase {phase} stories completed!")
+                else:
+                    print("\n✅ All stories completed!")
                 break
             
             # Check failure threshold
@@ -1657,6 +1682,7 @@ def main():
     exec_parser = subparsers.add_parser("execute-plan", help="Execute Ralph loop")
     exec_parser.add_argument("--prd", type=Path, help="Path to prd.json file")
     exec_parser.add_argument("--max-iterations", type=int, help="Max iterations (0 = unlimited)")
+    exec_parser.add_argument("--phase", type=int, help="Execute only stories in this phase (e.g., 1, 2, 3)")
     exec_parser.add_argument("--config", type=Path, help="Path to config file")
     
     # status command
@@ -1684,7 +1710,8 @@ def main():
     
     elif args.command == "execute-plan":
         loop = RalphLoop(config)
-        loop.execute(args.prd, args.max_iterations)
+        phase = args.phase if hasattr(args, 'phase') else None
+        loop.execute(args.prd, args.max_iterations, phase=phase)
     
     elif args.command == "status":
         prd_path = args.prd or Path(config.get("paths.prdFile", "prd.json"))
