@@ -216,6 +216,201 @@ class LogParser:
             self.console.print(user_message)
             self.console.print("\n" + "─" * 80)
 
+    def calculate_statistics(
+        self, interactions: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        """
+        Calculate summary statistics from interactions.
+
+        Args:
+            interactions: Grouped interactions to analyze
+
+        Returns:
+            Dictionary with statistics including:
+            - total_interactions: Total number of interactions
+            - successful_count: Number of successful interactions
+            - error_count: Number of failed interactions
+            - avg_duration_ms: Average duration in milliseconds
+            - tools_usage: Dict of tool names to usage count
+            - date_range: Tuple of (earliest, latest) timestamps
+            - estimated_tokens: Estimated token usage (heuristic)
+        """
+        if not interactions:
+            return {
+                "total_interactions": 0,
+                "successful_count": 0,
+                "error_count": 0,
+                "avg_duration_ms": 0.0,
+                "tools_usage": {},
+                "date_range": (None, None),
+                "estimated_tokens": 0,
+            }
+
+        total = len(interactions)
+        successful = 0
+        errors = 0
+        durations: list[float] = []
+        tools_counter: dict[str, int] = {}
+        timestamps: list[str] = []
+        total_chars = 0
+
+        for interaction in interactions.values():
+            result = interaction.get("result")
+            intent = interaction.get("intent")
+
+            # Count successes/errors
+            if result:
+                if result.get("error"):
+                    errors += 1
+                else:
+                    successful += 1
+
+                # Collect durations
+                duration = result.get("duration_ms")
+                if duration is not None:
+                    durations.append(duration)
+
+                # Count tools usage
+                tools_called = result.get("tools_called", [])
+                for tool in tools_called:
+                    tools_counter[tool] = tools_counter.get(tool, 0) + 1
+
+                # Collect timestamps
+                timestamp = result.get("timestamp")
+                if timestamp:
+                    timestamps.append(timestamp)
+
+            # Collect timestamps from intent too
+            if intent:
+                timestamp = intent.get("timestamp")
+                if timestamp:
+                    timestamps.append(timestamp)
+
+                # Estimate tokens based on prompt length (rough heuristic: 1 token ≈ 4 chars)
+                system_prompt = intent.get("system_prompt", "")
+                user_message = intent.get("user_message", "")
+                full_context = intent.get("full_context", "")
+
+                total_chars += len(system_prompt)
+                total_chars += len(user_message)
+                if full_context:
+                    total_chars += len(full_context)
+
+            # Add response length for token estimation
+            if result:
+                response = result.get("response", "")
+                total_chars += len(response)
+
+        # Calculate average duration
+        avg_duration = sum(durations) / len(durations) if durations else 0.0
+
+        # Determine date range
+        date_range: tuple[str | None, str | None]
+        if timestamps:
+            sorted_timestamps = sorted(timestamps)
+            date_range = (sorted_timestamps[0], sorted_timestamps[-1])
+        else:
+            date_range = (None, None)
+
+        # Estimate tokens (rough heuristic: 1 token ≈ 4 characters)
+        estimated_tokens = total_chars // 4
+
+        return {
+            "total_interactions": total,
+            "successful_count": successful,
+            "error_count": errors,
+            "avg_duration_ms": avg_duration,
+            "tools_usage": tools_counter,
+            "date_range": date_range,
+            "estimated_tokens": estimated_tokens,
+        }
+
+    def display_statistics(self, interactions: dict[str, dict[str, Any]]) -> None:
+        """
+        Display summary statistics for interactions.
+
+        Args:
+            interactions: Grouped interactions to analyze
+        """
+        stats = self.calculate_statistics(interactions)
+
+        # Header
+        self.console.print()
+        self.console.rule("[bold cyan]Log Summary Statistics[/bold cyan]")
+        self.console.print()
+
+        # Create statistics table
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Metric", style="bold yellow")
+        table.add_column("Value", style="cyan")
+
+        # Total interactions
+        table.add_row("Total Interactions", str(stats["total_interactions"]))
+
+        # Success/Error counts
+        table.add_row(
+            "Successful",
+            f"[green]{stats['successful_count']}[/green]",
+        )
+        table.add_row(
+            "Errors",
+            f"[red]{stats['error_count']}[/red]",
+        )
+
+        # Average duration
+        avg_dur = stats["avg_duration_ms"]
+        if avg_dur > 1000:
+            duration_str = f"{avg_dur / 1000:.2f}s"
+        else:
+            duration_str = f"{avg_dur:.1f}ms"
+        table.add_row("Average Duration", duration_str)
+
+        # Estimated tokens
+        table.add_row(
+            "Estimated Tokens",
+            f"~{stats['estimated_tokens']:,}",
+        )
+
+        # Date range
+        date_range = stats["date_range"]
+        if date_range[0] and date_range[1]:
+            # Parse and format dates nicely
+            try:
+                start_dt = datetime.fromisoformat(date_range[0])
+                end_dt = datetime.fromisoformat(date_range[1])
+                start_str = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+                end_str = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+                table.add_row("Date Range", f"{start_str} to {end_str}")
+            except (ValueError, AttributeError):
+                table.add_row("Date Range", f"{date_range[0]} to {date_range[1]}")
+        else:
+            table.add_row("Date Range", "N/A")
+
+        self.console.print(table)
+
+        # Most common tools (if any)
+        tools_usage = stats["tools_usage"]
+        if tools_usage:
+            self.console.print()
+            self.console.print("[bold yellow]Most Common Tools:[/bold yellow]")
+
+            # Sort by usage count (descending)
+            sorted_tools = sorted(
+                tools_usage.items(), key=lambda x: x[1], reverse=True
+            )
+
+            # Create tools table
+            tools_table = Table(show_header=True, box=None, padding=(0, 2))
+            tools_table.add_column("Tool", style="cyan")
+            tools_table.add_column("Count", style="magenta", justify="right")
+
+            for tool, count in sorted_tools[:10]:  # Show top 10
+                tools_table.add_row(tool, str(count))
+
+            self.console.print(tools_table)
+
+        self.console.print()
+
     def display_pretty(self, interactions: dict[str, dict[str, Any]]) -> None:
         """
         Display interactions with rich formatting and colors.
@@ -332,6 +527,9 @@ Examples:
 
   # Show only prompts (no responses)
   python -m cody.src.log_parser .cody/logs/interactions.jsonl --prompts-only
+
+  # Show summary statistics
+  python -m cody.src.log_parser .cody/logs/interactions.jsonl --stats
         """,
     )
 
@@ -378,6 +576,13 @@ Examples:
         help="Show only the prompts (system + user messages), not responses",
     )
 
+    parser.add_argument(
+        "--stats",
+        "-s",
+        action="store_true",
+        help="Show summary statistics (total, success/error counts, avg duration, tools usage, etc.)",
+    )
+
     args = parser.parse_args()
 
     try:
@@ -404,7 +609,9 @@ Examples:
             interactions = log_parser.get_last_n(interactions, args.last)
 
         # Display in requested format
-        if args.json:
+        if args.stats:
+            log_parser.display_statistics(interactions)
+        elif args.json:
             log_parser.display_json(interactions)
         elif args.prompts_only:
             log_parser.display_prompts_only(interactions)

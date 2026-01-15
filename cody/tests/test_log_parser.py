@@ -418,6 +418,331 @@ class TestDisplayPromptsOnly:
 
 
 @pytest.mark.unit
+class TestCalculateStatistics:
+    """Test calculate_statistics method."""
+
+    def test_calculate_stats_empty_interactions(self, tmp_path: Path) -> None:
+        """Test statistics calculation with empty interactions."""
+        log_file = tmp_path / "test.jsonl"
+        log_file.touch()
+
+        parser = LogParser(log_file)
+        stats = parser.calculate_statistics({})
+
+        assert stats["total_interactions"] == 0
+        assert stats["successful_count"] == 0
+        assert stats["error_count"] == 0
+        assert stats["avg_duration_ms"] == 0.0
+        assert stats["tools_usage"] == {}
+        assert stats["date_range"] == (None, None)
+        assert stats["estimated_tokens"] == 0
+
+    def test_calculate_stats_single_successful_interaction(self, tmp_path: Path) -> None:
+        """Test statistics with single successful interaction."""
+        log_file = tmp_path / "test.jsonl"
+        log_file.touch()
+
+        parser = LogParser(log_file)
+
+        interactions = {
+            "req-1": {
+                "intent": {
+                    "timestamp": "2026-01-14T10:00:00",
+                    "system_prompt": "You are helpful",  # 15 chars
+                    "user_message": "Hello",  # 5 chars
+                    "full_context": None,
+                },
+                "result": {
+                    "timestamp": "2026-01-14T10:00:01",
+                    "response": "Hi there!",  # 9 chars
+                    "duration_ms": 1000.0,
+                    "tools_called": [],
+                    "error": None,
+                },
+            }
+        }
+
+        stats = parser.calculate_statistics(interactions)
+
+        assert stats["total_interactions"] == 1
+        assert stats["successful_count"] == 1
+        assert stats["error_count"] == 0
+        assert stats["avg_duration_ms"] == 1000.0
+        assert stats["tools_usage"] == {}
+        assert stats["date_range"] == ("2026-01-14T10:00:00", "2026-01-14T10:00:01")
+        # 15 + 5 + 9 = 29 chars, 29 // 4 = 7 tokens
+        assert stats["estimated_tokens"] == 7
+
+    def test_calculate_stats_with_errors(self, tmp_path: Path) -> None:
+        """Test statistics with errors."""
+        log_file = tmp_path / "test.jsonl"
+        log_file.touch()
+
+        parser = LogParser(log_file)
+
+        interactions = {
+            "req-1": {
+                "intent": {
+                    "timestamp": "2026-01-14T10:00:00",
+                    "system_prompt": "System",
+                    "user_message": "Test",
+                    "full_context": None,
+                },
+                "result": {
+                    "timestamp": "2026-01-14T10:00:01",
+                    "response": "",
+                    "duration_ms": 500.0,
+                    "tools_called": [],
+                    "error": "API timeout",
+                },
+            },
+            "req-2": {
+                "intent": {
+                    "timestamp": "2026-01-14T11:00:00",
+                    "system_prompt": "System",
+                    "user_message": "Test2",
+                    "full_context": None,
+                },
+                "result": {
+                    "timestamp": "2026-01-14T11:00:01",
+                    "response": "Success",
+                    "duration_ms": 1500.0,
+                    "tools_called": [],
+                    "error": None,
+                },
+            },
+        }
+
+        stats = parser.calculate_statistics(interactions)
+
+        assert stats["total_interactions"] == 2
+        assert stats["successful_count"] == 1
+        assert stats["error_count"] == 1
+        assert stats["avg_duration_ms"] == 1000.0  # (500 + 1500) / 2
+
+    def test_calculate_stats_with_tools(self, tmp_path: Path) -> None:
+        """Test statistics with tool usage."""
+        log_file = tmp_path / "test.jsonl"
+        log_file.touch()
+
+        parser = LogParser(log_file)
+
+        interactions = {
+            "req-1": {
+                "intent": {
+                    "timestamp": "2026-01-14T10:00:00",
+                    "system_prompt": "System",
+                    "user_message": "Test",
+                    "full_context": None,
+                },
+                "result": {
+                    "timestamp": "2026-01-14T10:00:01",
+                    "response": "Result",
+                    "duration_ms": 1000.0,
+                    "tools_called": ["tool_a", "tool_b"],
+                    "error": None,
+                },
+            },
+            "req-2": {
+                "intent": {
+                    "timestamp": "2026-01-14T11:00:00",
+                    "system_prompt": "System",
+                    "user_message": "Test2",
+                    "full_context": None,
+                },
+                "result": {
+                    "timestamp": "2026-01-14T11:00:01",
+                    "response": "Result2",
+                    "duration_ms": 2000.0,
+                    "tools_called": ["tool_a", "tool_c"],
+                    "error": None,
+                },
+            },
+        }
+
+        stats = parser.calculate_statistics(interactions)
+
+        assert stats["tools_usage"] == {"tool_a": 2, "tool_b": 1, "tool_c": 1}
+
+    def test_calculate_stats_with_full_context(self, tmp_path: Path) -> None:
+        """Test token estimation includes full_context."""
+        log_file = tmp_path / "test.jsonl"
+        log_file.touch()
+
+        parser = LogParser(log_file)
+
+        interactions = {
+            "req-1": {
+                "intent": {
+                    "timestamp": "2026-01-14T10:00:00",
+                    "system_prompt": "1234",  # 4 chars
+                    "user_message": "5678",  # 4 chars
+                    "full_context": "12345678",  # 8 chars
+                },
+                "result": {
+                    "timestamp": "2026-01-14T10:00:01",
+                    "response": "1234",  # 4 chars
+                    "duration_ms": 1000.0,
+                    "tools_called": [],
+                    "error": None,
+                },
+            }
+        }
+
+        stats = parser.calculate_statistics(interactions)
+
+        # 4 + 4 + 8 + 4 = 20 chars, 20 // 4 = 5 tokens
+        assert stats["estimated_tokens"] == 5
+
+    def test_calculate_stats_date_range(self, tmp_path: Path) -> None:
+        """Test date range calculation."""
+        log_file = tmp_path / "test.jsonl"
+        log_file.touch()
+
+        parser = LogParser(log_file)
+
+        interactions = {
+            "req-1": {
+                "intent": {
+                    "timestamp": "2026-01-14T10:00:00",
+                    "system_prompt": "System",
+                    "user_message": "Test",
+                    "full_context": None,
+                },
+                "result": {
+                    "timestamp": "2026-01-14T15:00:00",
+                    "response": "Result",
+                    "duration_ms": 1000.0,
+                    "tools_called": [],
+                    "error": None,
+                },
+            },
+            "req-2": {
+                "intent": {
+                    "timestamp": "2026-01-14T08:00:00",  # Earliest
+                    "system_prompt": "System",
+                    "user_message": "Test2",
+                    "full_context": None,
+                },
+                "result": {
+                    "timestamp": "2026-01-14T20:00:00",  # Latest
+                    "response": "Result2",
+                    "duration_ms": 2000.0,
+                    "tools_called": [],
+                    "error": None,
+                },
+            },
+        }
+
+        stats = parser.calculate_statistics(interactions)
+
+        assert stats["date_range"] == (
+            "2026-01-14T08:00:00",
+            "2026-01-14T20:00:00",
+        )
+
+
+@pytest.mark.unit
+class TestDisplayStatistics:
+    """Test display_statistics method."""
+
+    def test_display_statistics_basic(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Test statistics display output."""
+        log_file = tmp_path / "test.jsonl"
+        log_file.touch()
+
+        parser = LogParser(log_file)
+
+        interactions = {
+            "req-1": {
+                "intent": {
+                    "timestamp": "2026-01-14T10:00:00",
+                    "system_prompt": "System",
+                    "user_message": "Test",
+                    "full_context": None,
+                },
+                "result": {
+                    "timestamp": "2026-01-14T10:00:01",
+                    "response": "Result",
+                    "duration_ms": 1234.5,
+                    "tools_called": ["tool_a", "tool_b"],
+                    "error": None,
+                },
+            }
+        }
+
+        parser.display_statistics(interactions)
+
+        captured = capsys.readouterr()
+
+        # Check key elements are present
+        assert "Log Summary Statistics" in captured.out
+        assert "Total Interactions" in captured.out
+        assert "1" in captured.out  # Total count
+        assert "Successful" in captured.out
+        assert "Errors" in captured.out
+        assert "Average Duration" in captured.out
+        assert "Estimated Tokens" in captured.out
+        assert "Date Range" in captured.out
+        assert "Most Common Tools" in captured.out
+        assert "tool_a" in captured.out
+        assert "tool_b" in captured.out
+
+    def test_display_statistics_empty(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Test statistics display with empty interactions."""
+        log_file = tmp_path / "test.jsonl"
+        log_file.touch()
+
+        parser = LogParser(log_file)
+
+        parser.display_statistics({})
+
+        captured = capsys.readouterr()
+
+        # Should still show headers and zero values
+        assert "Log Summary Statistics" in captured.out
+        assert "0" in captured.out
+
+    def test_display_statistics_no_tools(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Test statistics display when no tools were used."""
+        log_file = tmp_path / "test.jsonl"
+        log_file.touch()
+
+        parser = LogParser(log_file)
+
+        interactions = {
+            "req-1": {
+                "intent": {
+                    "timestamp": "2026-01-14T10:00:00",
+                    "system_prompt": "System",
+                    "user_message": "Test",
+                    "full_context": None,
+                },
+                "result": {
+                    "timestamp": "2026-01-14T10:00:01",
+                    "response": "Result",
+                    "duration_ms": 1000.0,
+                    "tools_called": [],
+                    "error": None,
+                },
+            }
+        }
+
+        parser.display_statistics(interactions)
+
+        captured = capsys.readouterr()
+
+        # Should not show "Most Common Tools" section
+        assert "Most Common Tools" not in captured.out
+
+
+@pytest.mark.unit
 class TestDisplayPretty:
     """Test display_pretty method."""
 

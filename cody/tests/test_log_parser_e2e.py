@@ -431,6 +431,98 @@ class TestLogParserCLI:
         assert len(output) == 1
         assert output[0]["request_id"] == "cli-002"
 
+    def test_cli_stats_flag(self, real_log_file: Path) -> None:
+        """Test CLI with --stats flag."""
+        result = subprocess.run(
+            [sys.executable, "-m", "src.log_parser", str(real_log_file), "--stats"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+
+        # Should show statistics headers
+        assert "Log Summary Statistics" in result.stdout
+        assert "Total Interactions" in result.stdout
+        assert "Successful" in result.stdout
+        assert "Errors" in result.stdout
+        assert "Average Duration" in result.stdout
+        assert "Estimated Tokens" in result.stdout
+        assert "Date Range" in result.stdout
+
+        # Should show count values
+        assert "2" in result.stdout  # Total interactions
+
+    def test_cli_stats_with_tools(self, tmp_path: Path) -> None:
+        """Test CLI stats with tools usage."""
+        log_file = tmp_path / "tools-test.jsonl"
+
+        entries = [
+            {
+                "timestamp": "2026-01-14T10:00:00.000000",
+                "request_id": "req-001",
+                "stage": "intent",
+                "system_prompt": "System",
+                "user_message": "Test",
+                "full_context": None,
+            },
+            {
+                "timestamp": "2026-01-14T10:00:01.000000",
+                "request_id": "req-001",
+                "stage": "result",
+                "response": "Result",
+                "duration_ms": 1000.0,
+                "tools_called": ["read_file", "write_file"],
+                "error": None,
+            },
+            {
+                "timestamp": "2026-01-14T11:00:00.000000",
+                "request_id": "req-002",
+                "stage": "intent",
+                "system_prompt": "System",
+                "user_message": "Test2",
+                "full_context": None,
+            },
+            {
+                "timestamp": "2026-01-14T11:00:01.000000",
+                "request_id": "req-002",
+                "stage": "result",
+                "response": "Result2",
+                "duration_ms": 2000.0,
+                "tools_called": ["read_file", "execute_command"],
+                "error": None,
+            },
+        ]
+
+        with open(log_file, "w") as f:
+            for entry in entries:
+                f.write(json.dumps(entry) + "\n")
+
+        result = subprocess.run(
+            [sys.executable, "-m", "src.log_parser", str(log_file), "--stats"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+
+        # Should show tools section
+        assert "Most Common Tools" in result.stdout
+        assert "read_file" in result.stdout
+        assert "write_file" in result.stdout
+        assert "execute_command" in result.stdout
+
+    def test_cli_stats_short_flag(self, real_log_file: Path) -> None:
+        """Test CLI with -s short flag for stats."""
+        result = subprocess.run(
+            [sys.executable, "-m", "src.log_parser", str(real_log_file), "-s"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "Log Summary Statistics" in result.stdout
+
 
 @pytest.mark.e2e
 class TestLogParserWithActualLogs:
