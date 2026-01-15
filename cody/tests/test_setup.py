@@ -1,19 +1,19 @@
 """
 Test to verify project setup and configuration.
 """
-import pytest
 
 
 def test_python_version() -> None:
     """Verify Python version is 3.10 or higher."""
     import sys
+
     assert sys.version_info >= (3, 10)
 
 
 def test_imports() -> None:
     """Verify core dependencies can be imported."""
-    import yaml
     import rich
+    import yaml
 
     # These should not raise ImportError
     assert yaml is not None
