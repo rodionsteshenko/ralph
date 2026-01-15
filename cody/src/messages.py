@@ -4,9 +4,14 @@ Message data structures for conversation history tracking.
 Provides Message dataclass and MessageWindow for managing sliding window of conversation history.
 """
 
+import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -125,3 +130,72 @@ class MessageWindow:
             Number of messages
         """
         return len(self.messages)
+
+    def persist(self, path: Path) -> None:
+        """
+        Save messages to a JSON file.
+
+        Args:
+            path: Path to save messages (e.g., .cody/messages.json)
+        """
+        # Ensure parent directory exists
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert messages to dict format
+        data = {
+            "max_messages": self.max_messages,
+            "messages": [msg.to_dict() for msg in self.messages],
+        }
+
+        # Write to file
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def load(self, path: Path) -> None:
+        """
+        Load messages from a JSON file.
+
+        If the file doesn't exist, starts with an empty window.
+        If the file is corrupted, starts with an empty window and logs a warning.
+
+        Args:
+            path: Path to load messages from (e.g., .cody/messages.json)
+        """
+        # If file doesn't exist, start empty
+        if not path.exists():
+            self.messages = []
+            return
+
+        # Try to load and parse JSON
+        try:
+            with open(path) as f:
+                data = json.load(f)
+
+            # Validate data structure
+            if not isinstance(data, dict):
+                raise ValueError("Invalid JSON structure: expected object")
+
+            if "messages" not in data:
+                raise ValueError("Invalid JSON structure: missing 'messages' field")
+
+            # Update max_messages if provided
+            if "max_messages" in data:
+                max_messages = data["max_messages"]
+                if isinstance(max_messages, int) and max_messages > 0:
+                    self.max_messages = max_messages
+
+            # Load messages
+            messages_data = data["messages"]
+            if not isinstance(messages_data, list):
+                raise ValueError("Invalid JSON structure: 'messages' must be a list")
+
+            self.messages = [Message.from_dict(msg_dict) for msg_dict in messages_data]
+
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
+            # Log warning and start with empty window
+            logger.warning(
+                "Failed to load messages from %s: %s. Starting with empty window.",
+                path,
+                str(e),
+            )
+            self.messages = []
