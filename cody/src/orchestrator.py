@@ -6,10 +6,13 @@ building context with temporal information and returning the response.
 """
 
 import logging
+from collections.abc import AsyncGenerator
+from typing import Any, Optional
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
 from .config import CodyConfig
+from .messages import Message, MessageWindow
 from .temporal import TemporalContext
 
 logger = logging.getLogger(__name__)
@@ -30,14 +33,18 @@ class Orchestrator:
 
     Attributes:
         config: Cody configuration
+        message_window: Optional message window for conversation context
     """
 
-    def __init__(self, config: CodyConfig) -> None:
+    def __init__(
+        self, config: CodyConfig, message_window: Optional[MessageWindow] = None
+    ) -> None:
         """
         Initialize orchestrator with configuration.
 
         Args:
             config: Cody configuration with timezone, API key, etc.
+            message_window: Optional message window for maintaining conversation context
 
         Raises:
             OrchestratorError: If API key is missing in config
@@ -46,6 +53,7 @@ class Orchestrator:
             raise OrchestratorError("ANTHROPIC_API_KEY is required but not set in config")
 
         self.config = config
+        self.message_window = message_window
 
     async def process_message(self, user_input: str) -> str:
         """
@@ -54,8 +62,10 @@ class Orchestrator:
         This method:
         1. Builds temporal context from user's timezone
         2. Constructs a system prompt with temporal awareness
-        3. Calls Claude Agent SDK with the user input
-        4. Returns the final assistant response as a string
+        3. Adds message window context if available
+        4. Calls Claude Agent SDK with the user input
+        5. Stores conversation in message window if available
+        6. Returns the final assistant response as a string
 
         Args:
             user_input: The user's message to process
@@ -91,12 +101,51 @@ class Orchestrator:
             await client.connect()
 
             try:
-                # Send user message
-                logger.debug("Sending message to Claude...")
-                await client.query(user_input)
+                # Build query with conversation history if available
+                if self.message_window is not None and len(self.message_window) > 0:
+                    # Get existing conversation history
+                    context = self.message_window.get_context()
+                    # Convert to SDK format and add the new user message
+                    messages_to_send = [
+                        {"role": msg["role"], "content": msg["content"]} for msg in context
+                    ]
+                    # Add the current user message
+                    messages_to_send.append({"role": "user", "content": user_input})
+
+                    # Create async generator for message stream
+                    async def message_stream() -> AsyncGenerator[dict[str, Any], None]:
+                        for msg in messages_to_send:
+                            yield msg
+
+                    # Send messages as a stream
+                    logger.debug(
+                        "Sending messages to Claude (with %d context messages)...",
+                        len(messages_to_send) - 1,
+                    )
+                    await client.query(message_stream())
+                else:
+                    # No message window - just send the user input
+                    logger.debug("Sending message to Claude...")
+                    await client.query(user_input)
 
                 # Collect response
                 response_text = await self._receive_response(client)
+
+                # Add both user and assistant messages to window after successful processing
+                if self.message_window is not None:
+                    # Add user message
+                    user_message = Message(
+                        role="user", content=user_input, timezone=self.config.user_timezone
+                    )
+                    self.message_window.add(user_message)
+
+                    # Add assistant response
+                    assistant_message = Message(
+                        role="assistant",
+                        content=response_text,
+                        timezone=self.config.user_timezone,
+                    )
+                    self.message_window.add(assistant_message)
 
                 logger.debug("Received response: %s", response_text[:100])
                 return response_text

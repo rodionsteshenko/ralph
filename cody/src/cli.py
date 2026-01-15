@@ -11,13 +11,14 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, Optional
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from rich.console import Console
 from rich.logging import RichHandler
 
 from .config import CodyConfig, ConfigurationError
+from .messages import MessageWindow
 from .temporal import TemporalContext
 
 # Configure logging
@@ -44,6 +45,7 @@ async def process_message(
     message: str,
     config: CodyConfig,
     verbose: bool,
+    message_window: Optional[MessageWindow] = None,
 ) -> tuple[str, int]:
     """
     Process a single message through the Claude Agent SDK.
@@ -52,6 +54,7 @@ async def process_message(
         message: User message to process
         config: Cody configuration
         verbose: Enable verbose output
+        message_window: Optional message window for maintaining conversation context
 
     Returns:
         Tuple of (response text, exit code)
@@ -63,65 +66,14 @@ async def process_message(
             logger.error("ANTHROPIC_API_KEY environment variable not set")
             return "Error: ANTHROPIC_API_KEY environment variable not set", 1
 
-        # Build temporal context for system prompt
-        temporal = TemporalContext(config.user_timezone)
-        temporal_context = temporal.to_context_string()
+        # Use orchestrator for message processing with message window support
+        from .orchestrator import Orchestrator
 
-        # Build system prompt with temporal awareness
-        system_prompt = f"""You are {config.assistant_name}, a personal AI assistant.
+        orchestrator = Orchestrator(config, message_window=message_window)
+        response = await orchestrator.process_message(message)
 
-{temporal_context}
-
-You help users with tasks, remember context across conversations, and provide
-thoughtful, accurate assistance. Be concise and helpful."""
-
-        logger.debug(f"System prompt: {system_prompt}")
-        logger.debug(f"User message: {message}")
-
-        # Create Claude SDK client with options
-        options = ClaudeAgentOptions(
-            system_prompt=system_prompt,
-            max_turns=1,  # Non-interactive: single turn only
-            permission_mode="bypassPermissions",  # No interactive prompts
-        )
-
-        client = ClaudeSDKClient(options=options)
-
-        logger.debug("Connecting to Claude Agent SDK...")
-        await client.connect()
-
-        try:
-            # Send user message
-            logger.debug("Sending message to Claude...")
-            await client.query(message)
-
-            # Collect response
-            response_parts: list[str] = []
-
-            logger.debug("Receiving response...")
-            async for msg in client.receive_response():
-                logger.debug(f"Received message type: {type(msg).__name__}")
-
-                # Extract text content from AssistantMessage
-                if hasattr(msg, "content"):
-                    for block in msg.content:
-                        if hasattr(block, "text"):
-                            response_parts.append(block.text)
-                            logger.debug(f"Response part: {block.text[:100]}...")
-
-            response = "".join(response_parts).strip()
-
-            if not response:
-                logger.warning("No response received from Claude")
-                return "Error: No response received from Claude", 1
-
-            logger.debug(f"Full response: {response}")
-            return response, 0
-
-        finally:
-            # Always disconnect
-            logger.debug("Disconnecting from Claude Agent SDK...")
-            await client.disconnect()
+        logger.debug(f"Full response: {response}")
+        return response, 0
 
     except Exception as e:
         logger.exception("Error processing message")

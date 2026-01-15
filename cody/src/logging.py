@@ -27,7 +27,7 @@ class InteractionLogger:
     - request_id: UUID for tracing
     - system_prompt: System prompt sent to Claude
     - user_message: User message sent to Claude
-    - full_context: Complete context (if any)
+    - full_context: Complete context (string or list of message dicts, if any)
     - response: Claude's response
     - tools_called: List of tools used (if any)
     - duration_ms: Time taken in milliseconds
@@ -74,7 +74,7 @@ class InteractionLogger:
         request_id: str,
         system_prompt: str,
         user_message: str,
-        full_context: str | None = None,
+        full_context: str | list[dict[str, Any]] | None = None,
     ) -> None:
         """
         Log the INTENT before sending to Claude.
@@ -85,7 +85,7 @@ class InteractionLogger:
             request_id: Unique request ID (UUID) for this interaction
             system_prompt: System prompt being sent
             user_message: User message being sent
-            full_context: Full context string (if any)
+            full_context: Full context (string or list of message dicts) (if any)
         """
         log_entry = {
             "timestamp": datetime.now().isoformat(),
@@ -137,7 +137,7 @@ class InteractionLogger:
         response: str,
         duration_ms: float,
         request_id: str | None = None,
-        full_context: str | None = None,
+        full_context: str | list[dict[str, Any]] | None = None,
         tools_called: list[str] | None = None,
         error: str | None = None,
     ) -> str:
@@ -153,7 +153,7 @@ class InteractionLogger:
             response: Response from Claude
             duration_ms: Duration in milliseconds
             request_id: Unique request ID (auto-generated if not provided)
-            full_context: Full context string (if any)
+            full_context: Full context (string or list of message dicts) (if any)
             tools_called: List of tool names called (if any)
             error: Error message (if any)
 
