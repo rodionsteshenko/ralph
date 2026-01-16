@@ -224,7 +224,7 @@ Potential additions to these tools:
 - [ ] Story dependency validation
 - [ ] Phase transition rules (e.g., can't move to Phase 2 until Phase 1 is 100% complete)
 - [ ] Story estimation tracking (compare estimated vs actual duration)
-- [ ] Export to Markdown summary
+- [ ] Export to summary report
 - [ ] Integration with git commits (auto-commit PRD changes)
 - [ ] Interactive CLI with prompts
 - [ ] Story filtering by priority, tags, or keywords

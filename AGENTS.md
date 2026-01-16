@@ -8,7 +8,7 @@ Ralph is an autonomous AI agent loop that executes user stories from a PRD (Prod
 
 ### Core Concept
 
-1. **PRD Processing**: Convert markdown PRDs to structured JSON (`prd.json`)
+1. **PRD Processing**: Convert PRD documents to structured JSON (`prd.json`)
 2. **Autonomous Loop**: Execute stories one by one using Claude API
 3. **Quality Gates**: Run typecheck, lint, and tests statically (outside agent control)
 4. **Git Integration**: Auto-commit when quality gates pass
@@ -30,7 +30,7 @@ Ralph is an autonomous AI agent loop that executes user stories from a PRD (Prod
 
 #### `PRDParser`
 - **Location**: `ralph.py` lines 127-284
-- **Purpose**: Converts markdown PRDs to structured JSON
+- **Purpose**: Converts PRD documents to structured JSON
 - **Pattern**: Uses Claude API to parse and structure PRD content
 - **Key Methods**:
   - `parse_prd(prd_path, output_path)` - Main parsing method
@@ -128,7 +128,6 @@ ralph/
 ├── ralph.py              # Main script (all classes)
 ├── pyproject.toml        # Python project metadata (UV)
 ├── requirements.txt      # Dependencies
-├── Makefile              # Build commands (uses UV)
 ├── prd.json              # Generated PRD (gitignored)
 ├── progress.txt          # Progress log (gitignored)
 ├── .ralph/
@@ -342,7 +341,7 @@ response = self.claude.messages.create(
 
 ### Format
 
-```markdown
+```text
 ## Iteration 1 - US-001 - 2024-01-01T12:00:00
 **Story**: Story title
 **Status**: ✅ PASSED
@@ -516,8 +515,7 @@ Modify `_build_context()` to include additional context sources.
 - Set git config: `git config user.name "Ralph"`
 
 **API errors**
-- Verify `ANTHROPIC_API_KEY` is set
-- Check API key is valid
+- Verify Claude Code CLI is installed and authenticated
 - Verify model name is correct
 
 ## Testing
@@ -526,7 +524,7 @@ Modify `_build_context()` to include additional context sources.
 
 ```bash
 # Test PRD parsing
-python ralph.py process-prd test-prd.md
+python ralph.py process-prd test-prd.txt
 
 # Test configuration
 python ralph.py init

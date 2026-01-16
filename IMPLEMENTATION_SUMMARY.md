@@ -13,7 +13,7 @@ This document summarizes the Python implementation of Ralph, based on the origin
    - Provides defaults for common setups
    - Manages project-specific settings
 
-2. **PRDParser**: Converts markdown PRDs to structured JSON
+2. **PRDParser**: Converts PRD documents to structured JSON
    - Uses Claude API to parse PRD content
    - Validates story sizing and dependencies
    - Generates `prd.json` with proper structure
@@ -32,7 +32,7 @@ This document summarizes the Python implementation of Ralph, based on the origin
 
 ### ✅ PRD Processing
 - Command: `ralph process-prd <file>`
-- Converts markdown PRD to `prd.json`
+- Converts PRD document to `prd.json`
 - Uses Claude to extract and structure user stories
 - Validates story size and dependencies
 
@@ -139,7 +139,7 @@ This ensures quality gates can't be bypassed by the agent.
 
 ```bash
 # 1. Process PRD
-python ralph.py process-prd tasks/prd-feature.md
+python ralph.py process-prd tasks/prd-feature.txt
 
 # 2. Execute plan
 python ralph.py execute-plan --max-iterations 20
@@ -184,16 +184,6 @@ python ralph.py execute-plan --prd features/my-feature.json
 }
 ```
 
-## File Structure
-
-```
-ralph.py                    # Main implementation
-requirements.txt            # Python dependencies
-ralph_python_README.md     # User documentation
-agent_prompt_template.md   # Prompt template docs
-IMPLEMENTATION_SUMMARY.md  # This file
-```
-
 ## Future Enhancements
 
 ### Planned
@@ -236,7 +226,7 @@ IMPLEMENTATION_SUMMARY.md  # This file
 
 ## Security Considerations
 
-- **API Key**: Stored in environment variable
+- **Authentication**: Uses CLI-based auth (ensure credentials are protected)
 - **Git Commits**: Uses system git (respects git config)
 - **Command Execution**: Runs shell commands (validate config)
 - **File Access**: Reads/writes project files (ensure permissions)

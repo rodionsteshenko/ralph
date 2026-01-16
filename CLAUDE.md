@@ -12,20 +12,18 @@ Ralph is an autonomous AI agent loop that executes user stories from PRDs (Produ
 
 ### Installation & Setup
 ```bash
-make install              # Install dependencies using UV package manager
-make install-dev          # Install dev dependencies (ruff, mypy, black, pytest)
-export ANTHROPIC_API_KEY=your_key_here  # Required for Claude API
+uv pip install -r requirements.txt  # Install dependencies using UV
 python ralph.py init      # Initialize .ralph/config.json
 ```
 
 ### Primary Workflow
 ```bash
-# 1. Process PRD markdown to structured JSON
+# 1. Process PRD document to structured JSON
 # For small PRDs (<10 stories):
-python ralph.py process-prd tasks/prd-feature.md [--output prd.json]
+python ralph.py process-prd tasks/prd-feature.txt [--output prd.json]
 
 # For large PRDs (10+ stories) - uses tool-based batching:
-python prd_builder.py tasks/prd-feature.md [--output prd.json]
+python prd_builder.py tasks/prd-feature.txt [--output prd.json]
 
 # 2. Execute the plan
 python ralph.py execute-plan [--max-iterations N] [--prd prd.json]
@@ -36,11 +34,10 @@ python ralph.py status [--prd prd.json]
 
 ### Development
 ```bash
-make format              # Format code with ruff
-make lint                # Run ruff + mypy
-make check               # Run format check + lint
-make clean               # Clean generated files
-make verify              # Verify installation
+ruff format             # Format code
+ruff check              # Run lint checks
+mypy .                  # Run type checks
+pytest                  # Run tests
 ```
 
 ## Architecture
@@ -54,7 +51,7 @@ The entire implementation lives in `ralph.py` (~900 lines). Key classes:
    - Creates required directories automatically
 
 2. **PRDParser** (lines 127-284)
-   - Converts markdown PRDs to structured `prd.json`
+   - Converts PRD documents to structured `prd.json`
    - Uses Claude API for parsing
    - Validates story sizing and dependencies
 
@@ -261,18 +258,11 @@ ralph/
 ├── ralph.py              # Single-file implementation (~900 lines)
 ├── pyproject.toml        # Python project metadata (uses UV)
 ├── requirements.txt      # anthropic>=0.34.0
-├── Makefile              # Build/dev commands (uses UV package manager)
 ├── prd.json              # Generated PRD (gitignored)
 ├── progress.txt          # Append-only progress log (gitignored)
 ├── .ralph/
 │   ├── config.json       # Configuration (customize per project)
 │   └── skills/          # Project-specific skills (future)
-├── AGENTS.md            # Codebase patterns for agents
-├── QUICKSTART.md        # 5-minute quick start guide
-├── README.md            # Project overview
-├── ralph_python_README.md  # Full documentation
-├── IMPLEMENTATION_SUMMARY.md  # Implementation details
-├── agent_prompt_template.md  # Prompt template docs
 └── archive/             # Archived runs
 ```
 
@@ -282,18 +272,7 @@ Uses **UV** package manager for fast Python installations:
 - Runtime: `anthropic>=0.34.0`
 - Dev: `ruff`, `mypy`, `black`, `pytest`
 
-Add dependencies to `requirements.txt` or `pyproject.toml` then run `make install`.
-
-## Anthropic API Key Setup
-
-Ralph tries multiple auth methods in order:
-1. `ANTHROPIC_API_KEY` environment variable
-2. `.env` file in project root
-3. `~/.anthropic_api_key` file
-4. `.ralph/config.json` → `anthropic.apiKey`
-5. `~/.claude.json` → `api_key`
-
-Get API key from: https://console.anthropic.com/settings/keys
+Add dependencies to `requirements.txt` or `pyproject.toml` then run `uv pip install -r requirements.txt`.
 
 ## Adding Quality Gates
 
@@ -313,7 +292,7 @@ Get API key from: https://console.anthropic.com/settings/keys
 ## Progress Logging
 
 Format in `progress.txt`:
-```markdown
+```text
 ## Iteration 1 - US-001 - 2024-01-01T12:00:00
 **Story**: Story title
 **Status**: ✅ PASSED
@@ -394,7 +373,7 @@ python prd_builder.py prd-large-project.md --output prd.json
 ```
 
 **How it works:**
-- Splits PRD markdown by user story headers (###  US-XXX)
+- Splits PRD content by user story headers (###  US-XXX)
 - Processes header first to extract project metadata
 - Processes stories in batches (5 per batch)
 - Each batch is a separate Claude API call with tools

@@ -14,11 +14,7 @@ This implementation recreates the Ralph pattern from the original bash/Amp versi
 
 ```bash
 # Install dependencies (uses UV for fast installation)
-make install
-# Or manually: uv pip install -r requirements.txt
-
-# Set your Anthropic API key
-export ANTHROPIC_API_KEY=your_api_key_here
+uv pip install -r requirements.txt
 
 # Make ralph.py executable
 chmod +x ralph.py
@@ -28,12 +24,12 @@ chmod +x ralph.py
 
 ### 1. Process a PRD
 
-Convert a markdown PRD file into a structured `prd.json`:
+Convert a PRD document into a structured `prd.json`:
 
 ```bash
-python ralph.py process-prd tasks/prd-my-feature.md
+python ralph.py process-prd tasks/prd-my-feature.txt
 # or
-python ralph.py process-prd tasks/prd-my-feature.md --output prd.json
+python ralph.py process-prd tasks/prd-my-feature.txt --output prd.json
 ```
 
 This uses Claude to parse your PRD and extract user stories with proper sizing and ordering.
@@ -184,7 +180,7 @@ All gates must pass before committing. If any gate fails, the agent can retry in
 
 ## Key Features
 
-✅ **PRD Processing**: Convert markdown PRDs to structured JSON  
+✅ **PRD Processing**: Convert PRD documents to structured JSON  
 ✅ **Autonomous Loop**: Execute stories until completion  
 ✅ **Quality Gates**: Static validation (tests, lint, typecheck)  
 ✅ **Progress Logging**: Detailed logs with timing metrics  
@@ -196,40 +192,45 @@ All gates must pass before committing. If any gate fails, the agent can retry in
 ## Example Workflow
 
 ```bash
-# 1. Write a PRD (markdown)
-cat > tasks/prd-task-priority.md << EOF
-# Task Priority Feature
-
-Add priority levels to tasks.
-
-## User Stories
-
-### US-001: Add priority field to database
-- Add priority column: 'high' | 'medium' | 'low'
-- Run migration
-- Typecheck passes
-
-### US-002: Display priority badge
-- Show colored badge on task cards
-- Typecheck passes
+# 1. Create a PRD file (JSON)
+cat > prd.json << EOF
+{
+  "project": "Task Priority Feature",
+  "branchName": "ralph/task-priority",
+  "description": "Add priority levels to tasks.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add priority field to database",
+      "description": "As a developer, I need to store task priority.",
+      "acceptanceCriteria": [
+        "Add priority column: 'high' | 'medium' | 'low'",
+        "Run migration",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    }
+  ],
+  "metadata": {
+    "createdAt": "2024-01-01T12:00:00",
+    "lastUpdatedAt": "2024-01-01T12:00:00",
+    "totalStories": 1,
+    "completedStories": 0,
+    "currentIteration": 0
+  }
+}
 EOF
 
-# 2. Convert to prd.json
-python ralph.py process-prd tasks/prd-task-priority.md
-
-# 3. Execute
+# 2. Execute
 python ralph.py execute-plan --max-iterations 10
 
-# 4. Check status
+# 3. Check status
 python ralph.py status
 ```
 
 ## Troubleshooting
-
-### API Key Not Set
-```bash
-export ANTHROPIC_API_KEY=your_key_here
-```
 
 ### Quality Gates Failing
 Check your `config.json` commands match your project setup:

@@ -7,6 +7,7 @@ Usage:
     ralph process-prd <prd_file> [--output prd.json]
     ralph execute-plan [--prd prd.json] [--max-iterations N] [--config config.json]
     ralph status [--prd prd.json]
+    ralph select [--prd prd.json]  # Interactive story selection menu
     ralph init [--detect-config]
 """
 
@@ -24,10 +25,9 @@ import re
 try:
     from rich.console import Console
     from rich.panel import Panel
-    from rich.syntax import Syntax
-    from rich.live import Live
+    from rich.table import Table
     from rich.text import Text
-    from rich.progress import Progress, SpinnerColumn, TextColumn
+    from rich import box
     HAS_RICH = True
     console = Console()
 except ImportError:
@@ -171,13 +171,13 @@ class RalphConfig:
 
 
 class PRDParser:
-    """Parse PRD markdown files and convert to prd.json format."""
+    """Parse PRD documents and convert to prd.json format."""
 
     def __init__(self, config: RalphConfig):
         self.config = config
 
     def parse_prd(self, prd_path: Path, output_path: Optional[Path] = None) -> Path:
-        """Parse PRD markdown and convert to prd.json."""
+        """Parse PRD content and convert to prd.json."""
         if not prd_path.exists():
             raise FileNotFoundError(f"PRD file not found: {prd_path}")
 
@@ -272,7 +272,7 @@ CRITICAL RULES:
 PRD Content:
 {prd_content}
 
-Output ONLY valid JSON, no markdown formatting, no explanations."""
+Output ONLY valid JSON, no extra formatting or explanations."""
     
     def _validate_prd_json(self, prd_json: Dict, prd_path: Path) -> Dict:
         """Validate and enhance PRD JSON structure."""
@@ -498,7 +498,7 @@ Write a concise, user-friendly summary that answers:
 - Emphasize what's TESTABLE right now vs what's coming later
 
 ## Output Format
-Return ONLY the summary text (no JSON, no markdown headers). Use emoji sparingly for visual clarity.
+Return ONLY the summary text (no JSON, no headers). Use emoji sparingly for visual clarity.
 Start with "🎯 FEATURES ADDED THIS SESSION" and then bullet points.
 End with a "What's Next" section if there are remaining stories."""
 
@@ -609,6 +609,77 @@ End with a "What's Next" section if there are remaining stories."""
 
         print("\n" + "="*80 + "\n")
 
+    def show_info(self, prd_path: Optional[Path] = None, phase: Optional[int] = None):
+        """Show startup banner and PRD info without executing anything."""
+        prd_path = prd_path or Path(self.config.get("paths.prdFile", "prd.json"))
+
+        if not prd_path.exists():
+            raise FileNotFoundError(f"PRD file not found: {prd_path}")
+
+        # Load PRD
+        with open(prd_path, 'r') as f:
+            prd = json.load(f)
+
+        max_iter = self.config.get("ralph.maxIterations", 20)
+        max_failures = self.config.get("ralph.maxFailures", 3)
+
+        # Display Ralph ASCII art
+        show_ralph_banner()
+
+        # Display phase info if filtering by phase
+        phase_info = ""
+        if phase is not None:
+            phase_metadata = prd.get("metadata", {}).get("phases", {}).get(str(phase), {})
+            phase_name = phase_metadata.get("name", f"Phase {phase}")
+            phase_info = f"\n   🎯 Phase Filter: {phase} ({phase_name})"
+
+        print(f"\n🚀 Ralph - Autonomous AI Agent Loop")
+        print(f"   Project: {prd.get('project', 'Unknown')}")
+        print(f"   Branch: {prd.get('branchName', 'N/A')}")
+        print(f"   Max iterations: {max_iter if max_iter > 0 else 'unlimited'}")
+        print(f"   Max consecutive failures: {max_failures}")
+
+        # Count stories
+        all_stories = prd.get('userStories', [])
+        completed = sum(1 for s in all_stories if s.get('passes', False))
+        total = len(all_stories)
+
+        stories_to_complete = [s for s in all_stories if not s.get('passes', False)]
+        if phase is not None:
+            stories_to_complete = [s for s in stories_to_complete if s.get('phase') == phase]
+
+        print(f"   Progress: {completed}/{total} stories ({completed/total*100:.0f}%)")
+        print(f"   Stories to complete: {len(stories_to_complete)}{phase_info}")
+
+        # Show phases summary
+        phases = prd.get("metadata", {}).get("phases", {})
+        if phases and HAS_RICH:
+            print()
+            for phase_num in sorted(phases.keys(), key=int):
+                phase_data = phases[phase_num]
+                phase_name = phase_data.get("name", f"Phase {phase_num}")
+                phase_story_ids = phase_data.get("stories", [])
+                phase_completed = sum(
+                    1 for sid in phase_story_ids
+                    if any(s.get("id") == sid and s.get("passes", False) for s in all_stories)
+                )
+                phase_total = len(phase_story_ids)
+                if phase_completed == phase_total:
+                    status = "✅"
+                elif phase_completed > 0:
+                    status = "🔄"
+                else:
+                    status = "⏳"
+                print(f"   {status} Phase {phase_num}: {phase_name} ({phase_completed}/{phase_total})")
+
+        # Show next story
+        if stories_to_complete:
+            next_story = min(stories_to_complete, key=lambda s: (s.get('phase', 999), s.get('priority', 999)))
+            print(f"\n   ➡️  Next: {next_story['id']} - {next_story['title']}")
+
+        print(f"\n   💡 To execute: python ralph.py execute-plan" + (f" --phase {phase}" if phase else ""))
+        print()
+
     def execute(self, prd_path: Optional[Path] = None, max_iterations: Optional[int] = None, phase: Optional[int] = None):
         """Execute Ralph loop until completion or max iterations.
 
@@ -635,21 +706,8 @@ End with a "What's Next" section if there are remaining stories."""
         max_iter = max_iterations or self.config.get("ralph.maxIterations", 20)
         max_failures = self.config.get("ralph.maxFailures", 3)
 
-        # Display Ralph ASCII art if available
-        if HAS_ASCII_ART:
-            ralph_image_path = Path(__file__).parent / "ralph.jpg"
-            if ralph_image_path.exists():
-                try:
-                    display_ascii_image(
-                        str(ralph_image_path),
-                        max_width=60,
-                        dark_mode=True,
-                        contrast_factor=1.5
-                    )
-                    print()  # Add spacing after ASCII art
-                except Exception as e:
-                    # If ASCII art fails, just continue without it
-                    pass
+        # Display Ralph ASCII art
+        show_ralph_banner()
 
         # Display phase info if filtering by phase
         phase_info = ""
@@ -1673,14 +1731,33 @@ Begin implementation now."""
         pass
 
 
+def show_ralph_banner():
+    """Display the Ralph ASCII art banner."""
+    if HAS_ASCII_ART:
+        ralph_image_path = Path(__file__).parent / "ralph.jpg"
+        if ralph_image_path.exists():
+            try:
+                display_ascii_image(
+                    str(ralph_image_path),
+                    max_width=60,
+                    dark_mode=True,
+                    contrast_factor=1.5
+                )
+                print()  # Add spacing after ASCII art
+                return True
+            except Exception:
+                pass
+    return False
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Ralph: Autonomous AI Agent Loop")
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     
     # process-prd command
-    prd_parser = subparsers.add_parser("process-prd", help="Convert PRD markdown to prd.json")
-    prd_parser.add_argument("prd_file", type=Path, help="Path to PRD markdown file")
+    prd_parser = subparsers.add_parser("process-prd", help="Convert PRD document to prd.json")
+    prd_parser.add_argument("prd_file", type=Path, help="Path to PRD source file")
     prd_parser.add_argument("--output", type=Path, help="Output prd.json path")
     
     # execute-plan command
@@ -1690,18 +1767,26 @@ def main():
     exec_parser.add_argument("--phase", type=int, help="Execute only stories in this phase (e.g., 1, 2, 3)")
     exec_parser.add_argument("--config", type=Path, help="Path to config file")
     exec_parser.add_argument("--verbose", "-v", action="store_true", help="Show verbose output including full prompts")
+    exec_parser.add_argument("--info", action="store_true", help="Show startup banner and PRD info only (no execution)")
     
     # status command
     status_parser = subparsers.add_parser("status", help="Show Ralph status")
     status_parser.add_argument("--prd", type=Path, help="Path to prd.json file")
-    
+
+    # select command (interactive story selection)
+    select_parser = subparsers.add_parser("select", help="Interactive story selection menu")
+    select_parser.add_argument("--prd", type=Path, help="Path to prd.json file")
+    select_parser.add_argument("--config", type=Path, help="Path to config file")
+    select_parser.add_argument("--verbose", "-v", action="store_true", help="Show verbose output")
+
     # init command
     init_parser = subparsers.add_parser("init", help="Initialize Ralph configuration")
     init_parser.add_argument("--detect-config", action="store_true", help="Auto-detect project configuration")
     
     args = parser.parse_args()
-    
+
     if not args.command:
+        show_ralph_banner()
         parser.print_help()
         return
     
@@ -1718,7 +1803,10 @@ def main():
         verbose = args.verbose if hasattr(args, 'verbose') else False
         loop = RalphLoop(config, verbose=verbose)
         phase = args.phase if hasattr(args, 'phase') else None
-        loop.execute(args.prd, args.max_iterations, phase=phase)
+        if args.info:
+            loop.show_info(args.prd, phase=phase)
+        else:
+            loop.execute(args.prd, args.max_iterations, phase=phase)
     
     elif args.command == "status":
         prd_path = args.prd or Path(config.get("paths.prdFile", "prd.json"))
@@ -1730,7 +1818,241 @@ def main():
             print(f"Status: {completed}/{total} stories completed")
         else:
             print("No prd.json found")
-    
+
+    elif args.command == "select":
+        prd_path = args.prd or Path(config.get("paths.prdFile", "prd.json"))
+        if not prd_path.exists():
+            if HAS_RICH:
+                console.print("[red]❌ No prd.json found. Run 'ralph process-prd' first.[/red]")
+            else:
+                print("❌ No prd.json found. Run 'ralph process-prd' first.")
+            sys.exit(1)
+
+        with open(prd_path, 'r') as f:
+            prd = json.load(f)
+
+        # Get uncompleted stories and sort by phase, then priority
+        uncompleted = [s for s in prd["userStories"] if not s.get("passes", False)]
+        uncompleted.sort(key=lambda s: (s.get("phase", 999), s.get("priority", 999)))
+
+        if not uncompleted:
+            if HAS_RICH:
+                console.print("[bold green]✅ All stories are completed![/bold green]")
+            else:
+                print("✅ All stories are completed!")
+            sys.exit(0)
+
+        # Calculate progress stats
+        total_stories = len(prd["userStories"])
+        completed_count = total_stories - len(uncompleted)
+        progress_pct = int((completed_count / total_stories) * 100) if total_stories > 0 else 0
+
+        if HAS_RICH:
+            # Create a beautiful header
+            console.print()
+            header_text = Text()
+            header_text.append("📋 ", style="bold")
+            header_text.append("Story Selection", style="bold magenta")
+            header_text.append(f"  •  ", style="dim")
+            header_text.append(f"{completed_count}/{total_stories}", style="bold cyan")
+            header_text.append(f" completed ", style="dim")
+            header_text.append(f"({progress_pct}%)", style="bold green" if progress_pct > 50 else "bold yellow")
+            console.print(Panel(header_text, border_style="blue", padding=(0, 2)))
+
+            # Group stories by phase
+            phases = {}
+            for story in uncompleted:
+                phase = story.get("phase", 0)
+                if phase not in phases:
+                    phases[phase] = []
+                phases[phase].append(story)
+
+            # Build numbered list for selection (maintains order across phases)
+            story_index = 0
+
+            for phase_num in sorted(phases.keys()):
+                phase_stories = phases[phase_num]
+
+                # Phase header
+                phase_metadata = prd.get("metadata", {}).get("phases", {}).get(str(phase_num), {})
+                phase_name = phase_metadata.get("name", f"Phase {phase_num}" if phase_num > 0 else "Unphased")
+
+                console.print()
+                if phase_num > 0:
+                    console.print(f"  [bold blue]━━━ {phase_name} ━━━[/bold blue]")
+                else:
+                    console.print(f"  [dim]━━━ {phase_name} ━━━[/dim]")
+
+                # Create table for this phase
+                table = Table(
+                    show_header=False,
+                    box=None,
+                    padding=(0, 1),
+                    collapse_padding=True,
+                    show_edge=False,
+                )
+                table.add_column("#", style="bold cyan", width=4, justify="right")
+                table.add_column("ID", style="yellow", width=8)
+                table.add_column("Title", style="white", no_wrap=False, max_width=50)
+                table.add_column("Pri", style="dim", width=3, justify="center")
+
+                for story in phase_stories:
+                    story_index += 1
+                    priority = story.get("priority", "-")
+
+                    # Color priority
+                    if priority == 1:
+                        pri_style = "bold red"
+                    elif priority == 2:
+                        pri_style = "yellow"
+                    elif priority == 3:
+                        pri_style = "green"
+                    else:
+                        pri_style = "dim"
+
+                    # Truncate title if needed
+                    title = story["title"]
+                    if len(title) > 50:
+                        title = title[:47] + "..."
+
+                    table.add_row(
+                        str(story_index),
+                        story["id"],
+                        title,
+                        Text(str(priority), style=pri_style),
+                    )
+
+                console.print(table)
+
+            console.print()
+
+            # Show legend
+            legend = Text()
+            legend.append("  Priority: ", style="dim")
+            legend.append("1", style="bold red")
+            legend.append("=High  ", style="dim")
+            legend.append("2", style="yellow")
+            legend.append("=Med  ", style="dim")
+            legend.append("3", style="green")
+            legend.append("=Low", style="dim")
+            console.print(legend)
+            console.print()
+
+            # Prompt for selection
+            console.print("[bold]Enter story number[/bold] [dim](or 'q' to quit)[/dim]: ", end="")
+        else:
+            # Fallback plain text display
+            print(f"\n📋 UNCOMPLETED STORIES ({completed_count}/{total_stories} done)\n")
+            for i, story in enumerate(uncompleted, 1):
+                phase = story.get("phase", "")
+                phase_str = f"[P{phase}] " if phase else ""
+                print(f"  {i:2}. {phase_str}{story['id']} - {story['title']}")
+            print()
+            print("Enter story number (or 'q' to quit): ", end="")
+
+        # Get user selection
+        while True:
+            try:
+                selection = input().strip()
+                if selection.lower() == 'q':
+                    if HAS_RICH:
+                        console.print("[dim]Cancelled.[/dim]")
+                    else:
+                        print("Cancelled.")
+                    sys.exit(0)
+
+                idx = int(selection) - 1
+                if 0 <= idx < len(uncompleted):
+                    selected_story = uncompleted[idx]
+                    break
+                else:
+                    if HAS_RICH:
+                        console.print(f"[red]Invalid selection. Enter 1-{len(uncompleted)}:[/red] ", end="")
+                    else:
+                        print(f"Invalid. Enter 1-{len(uncompleted)}: ", end="")
+            except ValueError:
+                if HAS_RICH:
+                    console.print("[red]Enter a number or 'q':[/red] ", end="")
+                else:
+                    print("Enter a number or 'q': ", end="")
+
+        # Show selected story details and confirm
+        if HAS_RICH:
+            console.print()
+            detail_table = Table(box=box.ROUNDED, border_style="green", show_header=False, padding=(0, 1))
+            detail_table.add_column("Field", style="cyan")
+            detail_table.add_column("Value", style="white")
+
+            detail_table.add_row("Story", f"[bold]{selected_story['id']}[/bold]")
+            detail_table.add_row("Title", selected_story["title"])
+            if selected_story.get("description"):
+                desc = selected_story["description"]
+                if len(desc) > 100:
+                    desc = desc[:97] + "..."
+                detail_table.add_row("Description", desc)
+
+            if selected_story.get("acceptanceCriteria"):
+                criteria = selected_story["acceptanceCriteria"][:3]  # Show first 3
+                criteria_text = "\n".join(f"• {c}" for c in criteria)
+                if len(selected_story["acceptanceCriteria"]) > 3:
+                    criteria_text += f"\n[dim]... and {len(selected_story['acceptanceCriteria']) - 3} more[/dim]"
+                detail_table.add_row("Acceptance", criteria_text)
+
+            console.print(Panel(detail_table, title="[bold green]Selected Story[/bold green]", border_style="green"))
+            console.print()
+            console.print("[bold]Execute this story?[/bold] [dim](y/n)[/dim]: ", end="")
+        else:
+            print(f"\nSelected: {selected_story['id']} - {selected_story['title']}")
+            print("Execute? (y/n): ", end="")
+
+        confirm = input().strip().lower()
+        if confirm != 'y':
+            if HAS_RICH:
+                console.print("[dim]Cancelled.[/dim]")
+            else:
+                print("Cancelled.")
+            sys.exit(0)
+
+        # Execute the selected story
+        verbose = args.verbose if hasattr(args, 'verbose') else False
+        loop = RalphLoop(config, verbose=verbose)
+        loop.session_start_time = time.time()
+        loop.initial_completed_count = sum(1 for s in prd["userStories"] if s.get("passes", False))
+
+        if HAS_RICH:
+            console.print()
+            console.print(f"[bold cyan]🚀 Executing {selected_story['id']}...[/bold cyan]")
+            console.print()
+        else:
+            print(f"\n🚀 Executing story {selected_story['id']}...")
+
+        success = loop._execute_story(selected_story, prd, iteration=1)
+
+        if success:
+            # Update PRD
+            selected_story["passes"] = True
+            prd["metadata"]["completedStories"] = sum(1 for s in prd["userStories"] if s.get("passes", False))
+            prd["metadata"]["lastUpdatedAt"] = datetime.now().isoformat()
+            with open(prd_path, 'w') as f:
+                json.dump(prd, f, indent=2)
+            if HAS_RICH:
+                console.print()
+                console.print(Panel(
+                    f"[bold green]Story {selected_story['id']} completed![/bold green]",
+                    border_style="green"
+                ))
+            else:
+                print(f"\n✅ Story {selected_story['id']} completed successfully!")
+        else:
+            if HAS_RICH:
+                console.print()
+                console.print(Panel(
+                    f"[bold red]Story {selected_story['id']} failed[/bold red]\n[dim]Check logs for details[/dim]",
+                    border_style="red"
+                ))
+            else:
+                print(f"\n❌ Story {selected_story['id']} failed. Check logs for details.")
+
     elif args.command == "init":
         config.save()
         print(f"✅ Configuration saved to {config.config_path}")

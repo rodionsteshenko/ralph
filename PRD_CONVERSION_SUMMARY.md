@@ -23,8 +23,8 @@ Successfully converted the STRIX-Inspired Slack Agent design document into a com
 - **Status**: 0/50 completed (ready to execute)
 
 ### 3. Test PRDs
-- `prd-test-minimal.md/json` - 4-story test PRD for validation
-- `prd-slack-agent-phase0.md/json` - 5-story Phase 0 foundation
+- `prd-test-minimal.json` - 4-story test PRD for validation
+- `prd-slack-agent-phase0.json` - 5-story Phase 0 foundation
 
 ### 4. Updated Documentation
 - `CLAUDE.md` - Added PRD builder documentation
@@ -154,10 +154,10 @@ Current Ralph configuration (`.ralph/config.json`):
 
 ## Tools Available
 
-- `python prd_builder.py <md> --output <json>` - Convert PRD markdown to JSON
+- `python prd_builder.py <source> --output <json>` - Convert PRD document to JSON
 - `python ralph.py status --prd <json>` - Check PRD status
 - `python ralph.py execute-plan --prd <json>` - Execute stories
-- `python ralph.py process-prd <md>` - Process small PRDs (< 10 stories)
+- `python ralph.py process-prd <source>` - Process small PRDs (< 10 stories)
 
 ## Success Metrics
 

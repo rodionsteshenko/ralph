@@ -50,11 +50,57 @@ class PRDBuilder:
     def __init__(self):
         self.prd_data: Dict[str, Any] = {}
         self.user_stories: List[Dict[str, Any]] = []
+        self.phases: Dict[int, Dict[str, Any]] = {}
+        self.story_to_phase: Dict[str, int] = {}
+
+    def _extract_phases(self, content: str) -> Dict[int, Dict[str, Any]]:
+        """Extract phase information from PRD content."""
+        phases = {}
+        # Match phase headers like "## Phase 1: Core Loop (Foundation)"
+        phase_pattern = r'##\s+Phase\s+(\d+):\s*([^\n]+)'
+        matches = re.finditer(phase_pattern, content)
+
+        for match in matches:
+            phase_num = int(match.group(1))
+            phase_name = match.group(2).strip()
+            phases[phase_num] = {
+                "name": phase_name,
+                "description": "",
+                "stories": []
+            }
+
+        return phases
+
+    def _map_stories_to_phases(self, content: str) -> Dict[str, int]:
+        """Map each story ID to its phase number based on position in document."""
+        story_to_phase = {}
+
+        # Find all phase boundaries and story positions
+        phase_pattern = r'##\s+Phase\s+(\d+):'
+        story_pattern = r'###\s+(US-\d+[A-Z]?):'
+
+        # Get all phase starts with their positions
+        phase_positions = [(int(m.group(1)), m.start()) for m in re.finditer(phase_pattern, content)]
+
+        # Get all story positions
+        story_matches = [(m.group(1), m.start()) for m in re.finditer(story_pattern, content)]
+
+        # Map each story to its phase based on position
+        for story_id, story_pos in story_matches:
+            current_phase = 1  # Default to phase 1
+            for phase_num, phase_pos in phase_positions:
+                if story_pos > phase_pos:
+                    current_phase = phase_num
+                else:
+                    break
+            story_to_phase[story_id] = current_phase
+
+        return story_to_phase
 
     def _split_into_stories(self, content: str) -> List[str]:
         """Split PRD content into story sections."""
-        # Split on user story headers (US-XXX)
-        pattern = r'###\s+(US-\d+:.*?)(?=###\s+US-\d+:|$)'
+        # Split on user story headers (US-XXX or US-XXXA)
+        pattern = r'###\s+(US-\d+[A-Z]?:.*?)(?=###\s+US-\d+[A-Z]?:|##\s+Phase|$)'
         matches = re.findall(pattern, content, re.DOTALL)
 
         # If no matches, return header + full content
@@ -62,13 +108,13 @@ class PRDBuilder:
             return [content]
 
         # Extract header (everything before first US)
-        header_match = re.search(r'(.*?)###\s+US-\d+:', content, re.DOTALL)
+        header_match = re.search(r'(.*?)###\s+US-\d+[A-Z]?:', content, re.DOTALL)
         header = header_match.group(1) if header_match else content[:1000]
 
         return [header] + matches
 
-    def build_from_markdown(self, prd_path: Path, output_path: Path, model: str = "claude-sonnet-4-5-20250929") -> Path:
-        """Build PRD JSON from markdown using Claude Code CLI."""
+    def build_from_prd(self, prd_path: Path, output_path: Path, model: str = "claude-sonnet-4-5-20250929") -> Path:
+        """Build PRD JSON from a PRD document using Claude Code CLI."""
 
         if not prd_path.exists():
             raise FileNotFoundError(f"PRD file not found: {prd_path}")
@@ -79,6 +125,14 @@ class PRDBuilder:
 
         print(f"📄 Building PRD from: {prd_path}")
         print(f"🤖 Using Claude Code ({model})...")
+
+        # Extract phases from the document
+        self.phases = self._extract_phases(prd_content)
+        if self.phases:
+            print(f"   Found {len(self.phases)} phases")
+
+        # Map stories to phases based on document structure
+        self.story_to_phase = self._map_stories_to_phases(prd_content)
 
         # Split PRD into sections by user story headers
         story_sections = self._split_into_stories(prd_content)
@@ -102,6 +156,21 @@ class PRDBuilder:
 
             self._process_story_batch(batch, model)
 
+        # Add phase field to each story and build phase story lists
+        for story in self.user_stories:
+            story_id = story["id"]
+            phase_num = self.story_to_phase.get(story_id, 1)
+            story["phase"] = phase_num
+
+            # Add story to phase's story list
+            if phase_num in self.phases:
+                self.phases[phase_num]["stories"].append(story_id)
+
+        # Build phases metadata (convert int keys to strings for JSON)
+        phases_metadata = {
+            str(k): v for k, v in self.phases.items()
+        } if self.phases else {}
+
         # Build final PRD JSON
         prd_json = {
             "project": self.prd_data.get("project", "Unknown"),
@@ -113,7 +182,8 @@ class PRDBuilder:
                 "lastUpdatedAt": datetime.now().isoformat(),
                 "totalStories": len(self.user_stories),
                 "completedStories": 0,
-                "currentIteration": 0
+                "currentIteration": 0,
+                "phases": phases_metadata
             }
         }
 
@@ -122,7 +192,7 @@ class PRDBuilder:
             json.dump(prd_json, f, indent=2)
 
         print(f"✅ PRD built successfully: {output_path}")
-        print(f"   Found {len(self.user_stories)} user stories")
+        print(f"   Found {len(self.user_stories)} user stories across {len(self.phases)} phases")
 
         return output_path
 
@@ -214,8 +284,8 @@ def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Build PRD JSON from markdown using Claude Code")
-    parser.add_argument("prd_file", type=Path, help="Path to PRD markdown file")
+    parser = argparse.ArgumentParser(description="Build PRD JSON from a PRD document using Claude Code")
+    parser.add_argument("prd_file", type=Path, help="Path to PRD source file")
     parser.add_argument("--output", "-o", type=Path, default=None, help="Output JSON file path")
     parser.add_argument("--model", "-m", default="claude-sonnet-4-5-20250929", help="Claude model to use")
 
@@ -226,7 +296,7 @@ def main():
 
     # Build PRD
     builder = PRDBuilder()
-    builder.build_from_markdown(args.prd_file, output_path, model=args.model)
+    builder.build_from_prd(args.prd_file, output_path, model=args.model)
 
 
 if __name__ == "__main__":
