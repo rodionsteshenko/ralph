@@ -80,7 +80,7 @@ The entire implementation lives in `ralph.py` (~2100 lines). Key classes:
 5. Run quality gates statically (Python subprocess)
 6. If all pass:
    - git add . && git commit -m "feat: {story_id} - {title}"
-   - Update prd.json (passes: true)
+   - Update prd.json (status: "complete")
    - Append to progress.txt
 7. Check stop conditions
 8. Repeat or exit
@@ -93,7 +93,7 @@ The entire implementation lives in `ralph.py` (~2100 lines). Key classes:
 
 ### Stop Conditions
 Ralph stops when:
-- All stories complete (`passes: true` for all)
+- All stories complete (`status: "complete"` for all)
 - Max iterations reached (if set, 0 = unlimited)
 - 3 consecutive failures (configurable)
 - Manual interrupt (Ctrl+C)
@@ -160,6 +160,9 @@ Expected JSON format in `prd.json`:
   "project": "ProjectName",
   "branchName": "ralph/feature-name",
   "description": "Feature description",
+  "phases": {
+    "1": { "name": "Phase Name", "description": "Optional description" }
+  },
   "userStories": [
     {
       "id": "US-001",
@@ -170,7 +173,8 @@ Expected JSON format in `prd.json`:
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
+      "phase": 1,
+      "status": "incomplete",
       "notes": ""
     }
   ],
@@ -197,13 +201,13 @@ Expected JSON format in `prd.json`:
 - Ralph will now enforce E2E tests for any feature that uses external services
 
 **Story status values:**
-- `undefined/null` - Not started
-- `"in_progress"` - Currently being worked on (has `startedAt` timestamp)
-- `"completed"` - Finished successfully (`passes=true`)
-- `"skipped"` - Intentionally closed without completing (`passes=false`, has `skippedAt` timestamp)
+- `"incomplete"` - Not started (default)
+- `"in_progress"` - Currently being worked on
+- `"complete"` - Finished successfully
+- `"skipped"` - Intentionally closed without completing
 
 **Phase closure logic:**
-- A phase is "closed" when all stories have either `passes=true` OR `status="skipped"`
+- A phase is "closed" when all stories have `status` of either `"complete"` or `"skipped"`
 - Closed phases show `[CLOSED]` badge in prd_viewer.py
 
 **PRD Management Tools:**

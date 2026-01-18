@@ -52,11 +52,11 @@ def format_duration(seconds: float | None) -> str:
 
 
 def is_phase_closed(phase_stories: list[dict[str, Any]]) -> bool:
-    """Check if a phase is closed (all stories either passed or skipped)."""
+    """Check if a phase is closed (all stories either complete or skipped)."""
     if not phase_stories:
         return False
     return all(
-        s.get("passes", False) or s.get("status") == "skipped" for s in phase_stories
+        s.get("status") in ("complete", "skipped") for s in phase_stories
     )
 
 
@@ -72,7 +72,7 @@ def build_display(
     # Get stories
     stories: list[dict[str, Any]] = prd.get("userStories", [])
     total = len(stories)
-    completed = sum(1 for s in stories if s.get("passes", False))
+    completed = sum(1 for s in stories if s.get("status") == "complete")
     project = prd.get("project", "Unknown Project")
 
     # Derive phases from stories
@@ -119,8 +119,8 @@ def build_display(
             if phase_num == 0:
                 continue  # Skip unphased
             for story in phases[phase_num]:
-                # Skip if passed or skipped
-                if not story.get("passes", False) and story.get("status") != "skipped":
+                # Skip if complete or skipped
+                if story.get("status", "incomplete") not in ("complete", "skipped"):
                     next_up_id = story.get("id")
                     break
             if next_up_id:
@@ -134,7 +134,7 @@ def build_display(
         phase_name = f"Phase {phase_num}"
 
         # Count stats in phase
-        phase_completed = sum(1 for s in phase_stories if s.get("passes", False))
+        phase_completed = sum(1 for s in phase_stories if s.get("status") == "complete")
         phase_skipped = sum(1 for s in phase_stories if s.get("status") == "skipped")
         phase_total = len(phase_stories)
         phase_closed = is_phase_closed(phase_stories)
@@ -175,14 +175,13 @@ def build_display(
         # Stories in phase
         for story in phase_stories:
             story_id = story.get("id", "")
-            passes = story.get("passes", False)
-            story_status = story.get("status", "")
+            story_status = story.get("status", "incomplete")
             title = story.get("title", "Unknown")
             duration = story.get("actualDuration")
             iteration = story.get("iterationNumber")
 
             # Determine status icon
-            if passes:
+            if story_status == "complete":
                 icon = "[green]✓[/green]"
                 style = "dim"
             elif story_status == "skipped":
@@ -199,7 +198,7 @@ def build_display(
                 style = "dim"
 
             duration_str = format_duration(duration)
-            if iteration and not passes:
+            if iteration and story_status != "complete":
                 duration_str = f"iter {iteration}"
 
             table.add_row(

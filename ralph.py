@@ -241,7 +241,7 @@ Your task is to analyze the following PRD and convert it into a prd.json file wi
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
+      "status": "incomplete",
       "notes": ""
     }}
   ],
@@ -300,8 +300,8 @@ Output ONLY valid JSON, no extra formatting or explanations."""
             if "priority" not in story:
                 story["priority"] = i + 1
             
-            if "passes" not in story:
-                story["passes"] = False
+            if "status" not in story:
+                story["status"] = "incomplete"
             
             if "notes" not in story:
                 story["notes"] = ""
@@ -320,7 +320,7 @@ Output ONLY valid JSON, no extra formatting or explanations."""
             "createdAt": prd_json.get("metadata", {}).get("createdAt", now),
             "lastUpdatedAt": now,
             "totalStories": len(prd_json["userStories"]),
-            "completedStories": sum(1 for s in prd_json["userStories"] if s.get("passes", False)),
+            "completedStories": sum(1 for s in prd_json["userStories"] if s.get("status") == "complete"),
             "currentIteration": prd_json.get("metadata", {}).get("currentIteration", 0)
         }
         
@@ -542,14 +542,14 @@ End with a "What's Next" section if there are remaining stories."""
 
         # Calculate stats
         total_stories = len(prd["userStories"])
-        current_completed = sum(1 for s in prd["userStories"] if s.get("passes", False))
+        current_completed = sum(1 for s in prd["userStories"] if s.get("status") == "complete")
         remaining_stories = total_stories - current_completed
         session_completed_count = len(self.session_completed_stories)
 
         # Generate AI feature summary first if we completed stories
         feature_summary = ""
         if session_completed_count > 0:
-            remaining = [s for s in prd["userStories"] if not s.get("passes", False)]
+            remaining = [s for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
             feature_summary = self._generate_feature_summary(
                 self.session_completed_stories,
                 remaining,
@@ -602,7 +602,7 @@ End with a "What's Next" section if there are remaining stories."""
 
         if remaining_stories > 0:
             print(f"\n📌 Next Stories to Complete:")
-            remaining = [s for s in prd["userStories"] if not s.get("passes", False)]
+            remaining = [s for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
             for story in remaining[:3]:  # Show next 3
                 print(f"   • {story['id']}: {story['title']}")
             if len(remaining) > 3:
@@ -648,10 +648,10 @@ End with a "What's Next" section if there are remaining stories."""
 
         # Count stories
         all_stories = prd.get('userStories', [])
-        completed = sum(1 for s in all_stories if s.get('passes', False))
+        completed = sum(1 for s in all_stories if s.get('status') == 'complete')
         total = len(all_stories)
 
-        stories_to_complete = [s for s in all_stories if not s.get('passes', False)]
+        stories_to_complete = [s for s in all_stories if s.get('status', 'incomplete') not in ('complete', 'skipped')]
         if phase is not None:
             stories_to_complete = [s for s in stories_to_complete if s.get('phase') == phase]
 
@@ -672,7 +672,7 @@ End with a "What's Next" section if there are remaining stories."""
                 if phase_num == 0:
                     continue  # Skip unphased stories in summary
                 phase_stories = phases_from_stories[phase_num]
-                phase_completed = sum(1 for s in phase_stories if s.get("passes", False))
+                phase_completed = sum(1 for s in phase_stories if s.get("status") == "complete")
                 phase_total = len(phase_stories)
                 if phase_completed == phase_total:
                     status = "✅"
@@ -720,7 +720,7 @@ End with a "What's Next" section if there are remaining stories."""
         self.session_start_time = time.time()
 
         # Track initial state
-        self.initial_completed_count = sum(1 for s in prd["userStories"] if s.get("passes", False))
+        self.initial_completed_count = sum(1 for s in prd["userStories"] if s.get("status") == "complete")
 
         max_iter = max_iterations or self.config.get("ralph.maxIterations", 20)
         max_failures = self.config.get("ralph.maxFailures", 3)
@@ -738,7 +738,7 @@ End with a "What's Next" section if there are remaining stories."""
         print(f"   Max consecutive failures: {max_failures}")
 
         # Count stories to complete (with optional phase filter)
-        stories_to_complete = [s for s in prd['userStories'] if not s.get('passes', False)]
+        stories_to_complete = [s for s in prd['userStories'] if s.get('status', 'incomplete') not in ('complete', 'skipped')]
         if phase is not None:
             stories_to_complete = [s for s in stories_to_complete if s.get('phase') == phase]
 
@@ -755,7 +755,7 @@ End with a "What's Next" section if there are remaining stories."""
                 break
             
             # Check for remaining stories (with optional phase filter)
-            remaining_stories = [s for s in prd["userStories"] if not s.get("passes", False)]
+            remaining_stories = [s for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
             if phase is not None:
                 remaining_stories = [s for s in remaining_stories if s.get("phase") == phase]
 
@@ -806,8 +806,7 @@ End with a "What's Next" section if there are remaining stories."""
             
             if success:
                 self.failure_count = 0  # Reset failure count on success
-                story["passes"] = True
-                story["status"] = "completed"
+                story["status"] = "complete"
                 # Track completed story in this session
                 self.session_completed_stories.append({
                     "id": story["id"],
@@ -819,7 +818,7 @@ End with a "What's Next" section if there are remaining stories."""
                 
                 # Update PRD metadata
                 prd["metadata"]["completedStories"] = sum(
-                    1 for s in prd["userStories"] if s.get("passes", False)
+                    1 for s in prd["userStories"] if s.get("status") == "complete"
                 )
                 prd["metadata"]["currentIteration"] = iteration
                 prd["metadata"]["lastUpdatedAt"] = datetime.now().isoformat()
@@ -872,7 +871,7 @@ End with a "What's Next" section if there are remaining stories."""
             for dep_id in mentioned_ids:
                 if dep_id != story["id"]:
                     dep_story = next((s for s in prd["userStories"] if s["id"] == dep_id), None)
-                    if dep_story and not dep_story.get("passes", False):
+                    if dep_story and dep_story.get("status", "incomplete") not in ("complete", "skipped"):
                         dependencies_satisfied = False
                         break
             
@@ -897,7 +896,7 @@ End with a "What's Next" section if there are remaining stories."""
             })
         
         # Get completed stories
-        completed_stories = [s for s in prd["userStories"] if s.get("passes", False)]
+        completed_stories = [s for s in prd["userStories"] if s.get("status") == "complete"]
         completed_ids = [s["id"] for s in completed_stories]
         
         # Get codebase structure (list key files/directories)
@@ -1016,6 +1015,9 @@ Be specific about why this story makes sense given the current codebase state an
     
     def _execute_story(self, story: Dict, prd: Dict, iteration: int) -> bool:
         """Execute a single story using Claude Code."""
+        # Mark story as in_progress
+        story["status"] = "in_progress"
+
         # Track execution time for this story
         story_start_time = time.time()
 
@@ -1271,8 +1273,8 @@ Be specific about why this story makes sense given the current codebase state an
             "story": story,
             "prd": {
                 "description": prd.get("description", ""),
-                "completedStories": [s["id"] for s in prd["userStories"] if s.get("passes", False)],
-                "remainingStories": [s["id"] for s in prd["userStories"] if not s.get("passes", False)]
+                "completedStories": [s["id"] for s in prd["userStories"] if s.get("status") == "complete"],
+                "remainingStories": [s["id"] for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
             },
             "progress": recent_progress,
             "progressMd": progress_md_content,
@@ -1893,7 +1895,7 @@ def main():
         if prd_path.exists():
             with open(prd_path, 'r') as f:
                 prd = json.load(f)
-            completed = sum(1 for s in prd["userStories"] if s.get("passes", False))
+            completed = sum(1 for s in prd["userStories"] if s.get("status") == "complete")
             total = len(prd["userStories"])
             print(f"Status: {completed}/{total} stories completed")
         else:
@@ -1912,7 +1914,7 @@ def main():
             prd = json.load(f)
 
         # Get uncompleted stories and sort by phase, then priority
-        uncompleted = [s for s in prd["userStories"] if not s.get("passes", False)]
+        uncompleted = [s for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
         uncompleted.sort(key=lambda s: (s.get("phase", 999), s.get("priority", 999)))
 
         if not uncompleted:
@@ -2096,7 +2098,7 @@ def main():
         verbose = args.verbose if hasattr(args, 'verbose') else False
         loop = RalphLoop(config, verbose=verbose)
         loop.session_start_time = time.time()
-        loop.initial_completed_count = sum(1 for s in prd["userStories"] if s.get("passes", False))
+        loop.initial_completed_count = sum(1 for s in prd["userStories"] if s.get("status") == "complete")
 
         if HAS_RICH:
             console.print()
@@ -2109,8 +2111,8 @@ def main():
 
         if success:
             # Update PRD
-            selected_story["passes"] = True
-            prd["metadata"]["completedStories"] = sum(1 for s in prd["userStories"] if s.get("passes", False))
+            selected_story["status"] = "complete"
+            prd["metadata"]["completedStories"] = sum(1 for s in prd["userStories"] if s.get("status") == "complete")
             prd["metadata"]["lastUpdatedAt"] = datetime.now().isoformat()
             with open(prd_path, 'w') as f:
                 json.dump(prd, f, indent=2)

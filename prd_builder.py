@@ -269,7 +269,7 @@ Return ONLY the JSON array, no other text."""
                         "description": story_data.get("description", ""),
                         "acceptanceCriteria": story_data.get("acceptance_criteria", []),
                         "priority": story_data.get("priority", len(self.user_stories) + 1),
-                        "passes": False,
+                        "status": "incomplete",
                         "notes": ""
                     }
                     self.user_stories.append(story)

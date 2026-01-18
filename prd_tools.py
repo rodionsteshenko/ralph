@@ -17,10 +17,10 @@ Usage:
     python prd_tools.py clear-stale <prd_file> [--max-age-hours N]
 
 Story Status Values:
-    undefined/null - Not started
+    "incomplete"   - Not started (default)
     "in_progress"  - Currently being worked on
-    "completed"    - Finished successfully (passes=true)
-    "skipped"      - Intentionally closed without completing (passes=false)
+    "complete"     - Finished successfully
+    "skipped"      - Intentionally closed without completing
 """
 
 import json
@@ -55,16 +55,15 @@ class PRDManager:
                 return True
         return False
 
-    def update_story_status(self, story_id: str, passes: bool):
-        """Update a story's completion status."""
+    def update_story_status(self, story_id: str, status: str):
+        """Update a story's status (incomplete, in_progress, complete, skipped)."""
         for story in self.data["userStories"]:
             if story["id"] == story_id:
-                story["passes"] = passes
+                story["status"] = status
                 # Update metadata
-                if passes:
-                    self.data["metadata"]["completedStories"] = sum(
-                        1 for s in self.data["userStories"] if s.get("passes", False)
-                    )
+                self.data["metadata"]["completedStories"] = sum(
+                    1 for s in self.data["userStories"] if s.get("status") == "complete"
+                )
                 return True
         return False
 
@@ -109,24 +108,22 @@ class PRDManager:
 
         Args:
             phase: Filter by phase number (None = all)
-            status: Filter by status ('complete', 'incomplete', None = all)
+            status: Filter by status ('complete', 'incomplete', 'in_progress', 'skipped', None = all)
         """
         stories = self.data["userStories"]
 
         if phase is not None:
             stories = [s for s in stories if s.get("phase") == phase]
 
-        if status == "complete":
-            stories = [s for s in stories if s.get("passes", False)]
-        elif status == "incomplete":
-            stories = [s for s in stories if not s.get("passes", False)]
+        if status is not None:
+            stories = [s for s in stories if s.get("status", "incomplete") == status]
 
         return stories
 
     def get_summary(self) -> dict:
         """Get summary statistics."""
         total = len(self.data["userStories"])
-        completed = sum(1 for s in self.data["userStories"] if s.get("passes", False))
+        completed = sum(1 for s in self.data["userStories"] if s.get("status") == "complete")
         skipped = sum(1 for s in self.data["userStories"] if s.get("status") == "skipped")
 
         # Count by phase
@@ -136,9 +133,10 @@ class PRDManager:
             if phase not in phase_counts:
                 phase_counts[phase] = {"total": 0, "completed": 0, "remaining": 0, "skipped": 0}
             phase_counts[phase]["total"] += 1
-            if story.get("passes", False):
+            status = story.get("status", "incomplete")
+            if status == "complete":
                 phase_counts[phase]["completed"] += 1
-            elif story.get("status") == "skipped":
+            elif status == "skipped":
                 phase_counts[phase]["skipped"] += 1
                 phase_counts[phase]["remaining"] += 1  # Skipped still counts as remaining
             else:
@@ -205,7 +203,7 @@ class PRDManager:
         """
         skipped = []
         for story in self.data["userStories"]:
-            if story.get("phase") == phase and not story.get("passes", False):
+            if story.get("phase") == phase and story.get("status", "incomplete") not in ("complete", "skipped"):
                 story["status"] = "skipped"
                 story["skippedAt"] = datetime.now().isoformat()
                 skipped.append(story["id"])
@@ -213,7 +211,7 @@ class PRDManager:
 
     def skip_story(self, story_id: str) -> bool:
         """
-        Mark a story as skipped (status='skipped', passes remains false).
+        Mark a story as skipped.
 
         Args:
             story_id: ID of the story to skip
@@ -289,18 +287,18 @@ class PRDManager:
 
     def is_phase_closed(self, phase: int) -> bool:
         """
-        Check if a phase is closed (all stories either passed or skipped).
+        Check if a phase is closed (all stories either complete or skipped).
 
         Args:
             phase: Phase number to check
 
         Returns:
-            True if all stories in phase are passed or skipped
+            True if all stories in phase are complete or skipped
         """
         phase_stories = [s for s in self.data["userStories"] if s.get("phase") == phase]
         if not phase_stories:
             return False
-        return all(s.get("passes", False) or s.get("status") == "skipped" for s in phase_stories)
+        return all(s.get("status") in ("complete", "skipped") for s in phase_stories)
 
 
 def main():
@@ -348,7 +346,7 @@ def main():
         stories = manager.list_stories(phase=phase, status=status)
 
         for story in stories:
-            status_icon = "✅" if story.get("passes", False) else "⏳"
+            status_icon = "✅" if story.get("status") == "complete" else "⏳"
             print(
                 f"{status_icon} {story['id']}: {story['title']} (Phase {story.get('phase', '?')})"
             )
@@ -376,9 +374,13 @@ def main():
                     print(f"Story {story_id} not found")
                     sys.exit(1)
             elif sys.argv[i] == "--status":
-                passes = sys.argv[i + 1].lower() in ["true", "complete", "done"]
-                if manager.update_story_status(story_id, passes):
-                    print(f"Updated {story_id} status to {'complete' if passes else 'incomplete'}")
+                new_status = sys.argv[i + 1].lower()
+                if new_status in ["true", "done"]:
+                    new_status = "complete"
+                elif new_status == "false":
+                    new_status = "incomplete"
+                if manager.update_story_status(story_id, new_status):
+                    print(f"Updated {story_id} status to {new_status}")
                 else:
                     print(f"Story {story_id} not found")
                     sys.exit(1)
