@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Ralph is an autonomous AI agent loop that executes user stories from PRDs (Product Requirement Documents). It uses Claude API to implement features iteratively, running quality gates after each iteration to ensure code quality before committing.
+Ralph is an autonomous AI agent loop that executes user stories from PRDs (Product Requirement Documents). It uses Claude Code CLI to implement features iteratively, running quality gates after each iteration to ensure code quality before committing.
 
 **Core workflow**: PRD → Parse to JSON → Execute stories one-by-one → Run quality gates → Auto-commit on pass
 
@@ -13,7 +13,7 @@ Ralph is an autonomous AI agent loop that executes user stories from PRDs (Produ
 ### Installation & Setup
 ```bash
 uv pip install -r requirements.txt  # Install dependencies using UV
-python ralph.py init      # Initialize .ralph/config.json
+python ralph.py init                # Initialize .ralph/config.json
 ```
 
 ### Primary Workflow
@@ -28,8 +28,9 @@ python prd_builder.py tasks/prd-feature.txt [--output prd.json]
 # 2. Execute the plan
 python ralph.py execute-plan [--max-iterations N] [--prd prd.json]
 
-# 3. Check status
+# 3. Check status / select stories
 python ralph.py status [--prd prd.json]
+python ralph.py select [--prd prd.json]   # Interactive story selection menu
 ```
 
 ### Development
@@ -43,24 +44,24 @@ pytest                  # Run tests
 ## Architecture
 
 ### Single-File Implementation
-The entire implementation lives in `ralph.py` (~900 lines). Key classes:
+The entire implementation lives in `ralph.py` (~2100 lines). Key classes:
 
-1. **RalphConfig** (lines 31-125)
+1. **RalphConfig** (line 77)
    - Manages `.ralph/config.json` with dot notation access
    - Example: `config.get("ralph.maxIterations", 20)`
    - Creates required directories automatically
 
-2. **PRDParser** (lines 127-284)
+2. **PRDParser** (line 173)
    - Converts PRD documents to structured `prd.json`
-   - Uses Claude API for parsing
+   - Uses Claude Code CLI for parsing
    - Validates story sizing and dependencies
 
-3. **QualityGates** (lines 286-361)
+3. **QualityGates** (line 330)
    - Runs typecheck/lint/test **statically** (outside agent control)
    - Executes via subprocess with timeouts
    - All gates must pass before commit
 
-4. **RalphLoop** (lines 363-717)
+4. **RalphLoop** (line 432)
    - Main execution loop orchestrating story execution
    - Selects next story by priority/dependencies
    - Builds fresh context each iteration
@@ -264,7 +265,7 @@ Default `.ralph/config.json`:
     "updateAgentsMd": false
   },
   "claude": {
-    "model": "claude-3-5-sonnet-20241022",
+    "model": "claude-sonnet-4-5-20250929",
     "maxTokens": 8192,
     "temperature": 0.7
   },
@@ -280,22 +281,27 @@ Default `.ralph/config.json`:
 
 ```
 ralph/
-├── ralph.py              # Single-file implementation (~900 lines)
+├── ralph.py              # Main implementation (~2100 lines)
+├── prd_builder.py        # Tool-based PRD builder for large PRDs
+├── prd_tools.py          # PRD manipulation utilities
+├── prd_viewer.py         # Terminal PRD progress viewer
 ├── pyproject.toml        # Python project metadata (uses UV)
-├── requirements.txt      # anthropic>=0.34.0
+├── requirements.txt      # Runtime dependencies
 ├── prd.json              # Generated PRD (gitignored)
 ├── progress.txt          # Append-only progress log (gitignored)
 ├── .ralph/
 │   ├── config.json       # Configuration (customize per project)
-│   └── skills/          # Project-specific skills (future)
-└── archive/             # Archived runs
+│   └── skills/           # Project-specific skills (future)
+├── agent/                # Design documents (reference, not code)
+└── archive/              # Archived runs
 ```
 
 ## Dependencies
 
 Uses **UV** package manager for fast Python installations:
-- Runtime: `anthropic>=0.34.0`
+- Runtime: `anthropic>=0.34.0`, `Pillow>=10.0.0`, `rich>=13.0.0`
 - Dev: `ruff`, `mypy`, `black`, `pytest`
+- External: Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
 
 Add dependencies to `requirements.txt` or `pyproject.toml` then run `uv pip install -r requirements.txt`.
 
@@ -366,12 +372,12 @@ result = subprocess.run(
 )
 ```
 
-## Claude API Usage
+## Claude Code CLI Usage
 
-Default configuration:
-- Model: `claude-3-5-sonnet-20241022`
-- Temperature: 0.7 (execution), 0.3 (PRD parsing)
-- Max tokens: 8192
+Ralph uses Claude Code CLI (`claude` command) rather than direct API calls:
+- Leverages OAuth authentication (no API key required)
+- Default model: `claude-sonnet-4-5-20250929`
+- Called via `call_claude_code()` function in ralph.py:45
 
 Prompts include:
 - Story details (ID, title, description, acceptance criteria)

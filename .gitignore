@@ -53,6 +53,7 @@ dmypy.json
 prd.json
 progress.txt
 archive/
+logs/
 *.log
 
 # Environment
