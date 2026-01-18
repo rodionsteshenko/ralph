@@ -1392,11 +1392,11 @@ Be specific about why this story makes sense given the current codebase state an
             working_dir = prd.get("project", "").lower().replace(" ", "-")
             working_dir = re.sub(r'[^a-z0-9-]', '', working_dir)
         
-        if not working_dir:
-            working_dir = "."
-        
-        work_path = Path.cwd() / working_dir
-        
+        if not working_dir or working_dir == ".":
+            work_path = self.config.project_dir
+        else:
+            work_path = self.config.project_dir / working_dir
+
         if not work_path.exists():
             return "No project directory found yet."
         
@@ -1440,14 +1440,14 @@ Be specific about why this story makes sense given the current codebase state an
 
         # Determine working directory for execution
         working_dir = context.get('workingDirectory')
-        if working_dir:
-            work_path = Path.cwd() / working_dir
+        if working_dir and working_dir != ".":
+            work_path = self.config.project_dir / working_dir
             work_path.mkdir(parents=True, exist_ok=True)
         else:
-            work_path = Path.cwd()
+            work_path = self.config.project_dir
 
         # Create detailed log file for this story
-        logs_dir = Path.cwd() / "logs"
+        logs_dir = self.config.logs_dir
         logs_dir.mkdir(exist_ok=True)
         detail_log = logs_dir / f"story-{story['id']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
 
@@ -2224,10 +2224,10 @@ Begin implementation now."""
                 working_dir = prd.get("project", "").lower().replace(" ", "-")
                 working_dir = re.sub(r'[^a-z0-9-]', '', working_dir)
 
-            if not working_dir:
-                working_dir = "."
-
-            work_path = Path.cwd() / working_dir
+            if not working_dir or working_dir == ".":
+                work_path = self.config.project_dir
+            else:
+                work_path = self.config.project_dir / working_dir
 
             if not work_path.exists():
                 print(f"   ⚠️  Working directory {working_dir} doesn't exist")
