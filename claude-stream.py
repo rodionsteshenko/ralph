@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Pretty-print Claude Code stream-json output with real-time progress indicators.
+Pretty-print Claude Code stream-json output with grouped intent display.
+
+Groups tool calls by the assistant's stated intent, showing a clean
+tree structure of what Claude is doing and why.
 """
 
 import json
@@ -8,14 +11,15 @@ import sys
 import subprocess
 import argparse
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass, field
 
 
 class Colors:
     """ANSI color codes for terminal output."""
     RESET = '\033[0m'
     BOLD = '\033[1m'
-    
+
     # Bright colors
     BLUE = '\033[94m'
     CYAN = '\033[96m'
@@ -24,240 +28,318 @@ class Colors:
     MAGENTA = '\033[95m'
     RED = '\033[91m'
     WHITE = '\033[97m'
-    
+
     # Dim colors
     DIM = '\033[2m'
     GRAY = '\033[90m'
 
 
-def format_timestamp() -> str:
-    """Get formatted timestamp."""
-    return datetime.now().strftime("%H:%M:%S")
+@dataclass
+class ToolCall:
+    """Represents a single tool call."""
+    name: str
+    description: str = ""
+    file_path: str = ""
+    command: str = ""
+    result: str = ""
+    is_error: bool = False
+    duration_ms: Optional[float] = None
+    completed: bool = False
 
 
-def print_header(text: str, color: str = Colors.CYAN):
-    """Print a formatted header."""
-    print(f"{color}{Colors.BOLD}▶ {text}{Colors.RESET}")
+@dataclass
+class IntentGroup:
+    """A group of tool calls under a single intent."""
+    intent: str
+    timestamp: str
+    tools: List[ToolCall] = field(default_factory=list)
+    duration_s: float = 0.0
 
 
-def print_info(text: str, indent: int = 0):
-    """Print info text."""
-    indent_str = "  " * indent
-    print(f"{Colors.GRAY}{indent_str}{text}{Colors.RESET}")
+class StreamProcessor:
+    """Processes Claude stream output and groups by intent."""
 
+    def __init__(self):
+        self.groups: List[IntentGroup] = []
+        self.current_group: Optional[IntentGroup] = None
+        self.pending_tools: Dict[str, ToolCall] = {}  # tool_use_id -> ToolCall
+        self.session_start: Optional[datetime] = None
+        self.model: str = ""
+        self.session_id: str = ""
+        self.total_tools: int = 0
+        self.total_errors: int = 0
 
-def print_success(text: str, indent: int = 0):
-    """Print success text."""
-    indent_str = "  " * indent
-    print(f"{Colors.GREEN}{indent_str}✓ {text}{Colors.RESET}")
+    def _format_timestamp(self) -> str:
+        return datetime.now().strftime("%H:%M:%S")
 
+    def _print_header(self):
+        """Print session header."""
+        print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════╗{Colors.RESET}")
+        print(f"{Colors.CYAN}║{Colors.RESET}  {Colors.BOLD}RALPH → CLAUDE{Colors.RESET}                                                      {Colors.CYAN}║{Colors.RESET}")
+        model_display = self.model[:20] if self.model else "unknown"
+        session_display = self.session_id[:8] if self.session_id else "unknown"
+        info_line = f"  Model: {model_display}  │  Session: {session_display}"
+        padding = 70 - len(info_line)
+        print(f"{Colors.CYAN}║{Colors.RESET}{Colors.GRAY}{info_line}{' ' * padding}{Colors.RESET}{Colors.CYAN}║{Colors.RESET}")
+        print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════╝{Colors.RESET}")
+        print()
 
-def print_warning(text: str, indent: int = 0):
-    """Print warning text."""
-    indent_str = "  " * indent
-    print(f"{Colors.YELLOW}{indent_str}⚠ {text}{Colors.RESET}")
+    def _flush_current_group(self):
+        """Close the current group (tools already printed incrementally)."""
+        if not self.current_group:
+            return
 
+        # Just add a blank line to separate groups
+        # (tools were already printed incrementally via _reprint_current_group)
+        print()
+        self.groups.append(self.current_group)
+        self.current_group = None
 
-def print_error(text: str, indent: int = 0):
-    """Print error text."""
-    indent_str = "  " * indent
-    print(f"{Colors.RED}{indent_str}✗ {text}{Colors.RESET}")
+    def _format_tool_info(self, tool: ToolCall) -> str:
+        """Format tool name and key details."""
+        name_lower = tool.name.lower()
 
+        if name_lower == "bash":
+            cmd = tool.command or tool.description or "command"
+            # Truncate long commands
+            if len(cmd) > 40:
+                cmd = cmd[:37] + "..."
+            return f"{Colors.YELLOW}bash:{Colors.RESET} {cmd}"
 
-def print_tool_call(tool_name: str, args: Optional[Dict] = None):
-    """Print tool call information."""
-    print(f"{Colors.MAGENTA}{Colors.BOLD}🔧 Tool: {tool_name}{Colors.RESET}")
-    if args:
-        args_str = json.dumps(args, indent=2)
-        # Truncate very long arguments
-        if len(args_str) > 200:
-            args_str = args_str[:200] + "..."
-        print_info(f"Args: {args_str}", indent=1)
+        elif name_lower in ("write", "edit"):
+            path = tool.file_path or "file"
+            # Show just filename for brevity
+            if "/" in path:
+                path = path.split("/")[-1]
+            return f"{Colors.GREEN}{tool.name.lower()}:{Colors.RESET} {path}"
 
+        elif name_lower == "read":
+            path = tool.file_path or "file"
+            if "/" in path:
+                path = path.split("/")[-1]
+            return f"{Colors.BLUE}read:{Colors.RESET} {path}"
 
-def print_tool_result(result_type: str, is_error: bool, duration: Optional[float] = None):
-    """Print tool result information."""
-    if is_error:
-        print_error(f"Result: {result_type} (failed)", indent=1)
-    else:
-        duration_str = f" ({duration:.1f}ms)" if duration else ""
-        print_success(f"Result: {result_type}{duration_str}", indent=1)
+        elif name_lower in ("glob", "grep"):
+            return f"{Colors.MAGENTA}{tool.name.lower()}:{Colors.RESET} {tool.description or 'search'}"
 
+        elif name_lower == "task":
+            return f"{Colors.CYAN}task:{Colors.RESET} {tool.description or 'subtask'}"
 
-def print_message(content: str, role: str = "assistant"):
-    """Print message content."""
-    if role == "assistant":
-        print(f"{Colors.CYAN}{Colors.BOLD}💬 Assistant:{Colors.RESET}")
-    else:
-        print(f"{Colors.BLUE}{Colors.BOLD}👤 User:{Colors.RESET}")
-    
-    # Print content with indentation
-    lines = content.split('\n')
-    for line in lines[:10]:  # Show first 10 lines
-        print_info(line, indent=1)
-    if len(lines) > 10:
-        print_info(f"... ({len(lines) - 10} more lines)", indent=1)
-
-
-def process_stream_line(line: str):
-    """Process a single line from the stream."""
-    line = line.strip()
-    if not line:
-        return
-    
-    try:
-        data = json.loads(line)
-        msg_type = data.get("type")
-        
-        if msg_type == "system":
-            subtype = data.get("subtype", "")
-            if subtype == "init":
-                print_header(f"Initializing Claude Code session")
-                print_info(f"Model: {data.get('model', 'unknown')}")
-                print_info(f"Session ID: {data.get('session_id', 'unknown')[:8]}...")
-                tools = data.get("tools", [])
-                if tools:
-                    print_info(f"Available tools: {', '.join(tools[:5])}{'...' if len(tools) > 5 else ''}")
-        
-        elif msg_type == "assistant":
-            message = data.get("message", {})
-            content = message.get("content", [])
-            
-            # Extract text content and tool uses
-            text_parts = []
-            for part in content:
-                if isinstance(part, dict):
-                    if part.get("type") == "text":
-                        text_parts.append(part.get("text", ""))
-                    elif part.get("type") == "tool_use":
-                        tool_name = part.get("name", "unknown")
-                        tool_id = part.get("id", "")
-                        tool_input = part.get("input", {})
-                        print_tool_call(tool_name, tool_input)
-            
-            if text_parts:
-                print_message("".join(text_parts), "assistant")
-        
-        elif msg_type == "tool_call":
-            tool_name = data.get("tool_name", "unknown")
-            args = data.get("arguments", {})
-            print_tool_call(tool_name, args)
-        
-        elif msg_type == "tool_result":
-            result_type = data.get("subtype", "unknown")
-            is_error = data.get("is_error", False)
-            duration = data.get("duration_ms")
-            print_tool_result(result_type, is_error, duration)
-        
-        elif msg_type == "user":
-            # User messages often contain tool results
-            message = data.get("message", {})
-            content = message.get("content", [])
-            
-            for part in content:
-                if isinstance(part, dict):
-                    if part.get("type") == "tool_result":
-                        tool_use_id = part.get("tool_use_id", "")
-                        result_content = part.get("content", "")
-                        is_error = part.get("is_error", False)
-                        
-                        if is_error:
-                            print_error(f"Tool result (error): {str(result_content)[:100]}", indent=1)
-                        else:
-                            # Show a summary of the result
-                            result_str = str(result_content)
-                            if len(result_str) > 150:
-                                result_str = result_str[:150] + "..."
-                            print_success(f"Tool result received: {result_str}", indent=1)
-        
-        elif msg_type == "result":
-            subtype = data.get("subtype", "")
-            is_error = data.get("is_error", False)
-            duration = data.get("duration_ms", 0) / 1000  # Convert to seconds
-            
-            if subtype == "success":
-                print_success(f"Completed successfully ({duration:.2f}s)")
-            elif subtype == "error":
-                print_error(f"Failed ({duration:.2f}s)")
-            
-            # Show usage if available
-            usage = data.get("usage", {})
-            if usage:
-                input_tokens = usage.get("input_tokens", 0)
-                output_tokens = usage.get("output_tokens", 0)
-                print_info(f"Tokens: {input_tokens} in, {output_tokens} out")
-            
-            # Show cost if available
-            cost = data.get("total_cost_usd")
-            if cost:
-                print_info(f"Cost: ${cost:.6f}")
-        
-        elif msg_type == "error":
-            error_msg = data.get("message", "Unknown error")
-            print_error(f"Error: {error_msg}")
-        
         else:
-            # Unknown type - only show if it's not a common internal type
-            if msg_type not in ["user"]:  # Skip user messages, we handle them above
-                print_info(f"Type: {msg_type}")
-                # Only show a summary for unknown types
-                data_str = json.dumps(data, indent=2)
-                if len(data_str) > 300:
-                    data_str = data_str[:300] + "..."
-                print_info(data_str, indent=1)
-    
-    except json.JSONDecodeError:
-        # Not JSON, print as-is
-        if line:
-            print_info(line)
+            return f"{Colors.WHITE}{tool.name}:{Colors.RESET} {tool.description or ''}"
+
+    def _format_tool_status(self, tool: ToolCall) -> str:
+        """Format tool completion status."""
+        if not tool.completed:
+            return f" {Colors.YELLOW}⠸{Colors.RESET}"
+
+        if tool.is_error:
+            result_preview = (tool.result or "error")[:30]
+            return f" {Colors.RED}✗ {result_preview}{Colors.RESET}"
+
+        # Show brief result for certain tools
+        if tool.result:
+            result = tool.result.strip()
+            # For bash commands, show brief output
+            if tool.name.lower() == "bash" and result:
+                lines = result.split('\n')
+                if len(lines) == 1 and len(result) < 40:
+                    return f" {Colors.GREEN}→{Colors.RESET} {Colors.GRAY}{result}{Colors.RESET}"
+                elif len(lines) > 1:
+                    return f" {Colors.GREEN}→{Colors.RESET} {Colors.GRAY}({len(lines)} lines){Colors.RESET}"
+
+        return f" {Colors.GREEN}✓{Colors.RESET}"
+
+    def _start_new_group(self, intent: str):
+        """Start a new intent group."""
+        self._flush_current_group()
+        self.current_group = IntentGroup(
+            intent=intent,
+            timestamp=self._format_timestamp()
+        )
+
+    def _add_tool_to_group(self, tool_id: str, tool: ToolCall):
+        """Add a tool call to the current group."""
+        if not self.current_group:
+            # Create implicit group if needed
+            self._start_new_group("Working...")
+
+        self.current_group.tools.append(tool)
+        self.pending_tools[tool_id] = tool
+        self.total_tools += 1
+
+        # Print in-progress indicator
+        self._reprint_current_group()
+
+    def _complete_tool(self, tool_id: str, result: str, is_error: bool):
+        """Mark a tool as completed."""
+        if tool_id in self.pending_tools:
+            tool = self.pending_tools[tool_id]
+            tool.result = result
+            tool.is_error = is_error
+            tool.completed = True
+            if is_error:
+                self.total_errors += 1
+            del self.pending_tools[tool_id]
+            # Don't reprint - tool was already printed when added
+
+    def _reprint_current_group(self):
+        """Reprint the current group (for live updates)."""
+        if not self.current_group:
+            return
+
+        group = self.current_group
+        tools = group.tools
+
+        # Move cursor up and clear previous output
+        # For simplicity, we'll just print incrementally
+        # A full implementation would use terminal control codes
+
+        # Just print the latest tool
+        if tools:
+            tool = tools[-1]
+            is_last = True  # We're printing incrementally
+            prefix = "└──" if is_last and tool.completed else "├──"
+
+            tool_info = self._format_tool_info(tool)
+            status = self._format_tool_status(tool)
+
+            if len(tools) == 1:
+                # First tool - print the group header too
+                timestamp = f"[{group.timestamp}]"
+                intent_display = group.intent[:60] + "..." if len(group.intent) > 60 else group.intent
+
+                tool_names = [t.name.lower() for t in tools]
+                if any("glob" in n or "grep" in n or "read" in n for n in tool_names):
+                    icon = "🔍"
+                elif any("write" in n or "edit" in n for n in tool_names):
+                    icon = "📁"
+                elif any("bash" in n for n in tool_names):
+                    icon = "⚡"
+                else:
+                    icon = "▸"
+
+                print(f"\n{Colors.GRAY}{timestamp}{Colors.RESET} {icon} {Colors.BOLD}{intent_display}{Colors.RESET}")
+
+            print(f"           {Colors.GRAY}{prefix}{Colors.RESET} {tool_info}{status}")
+
+    def process_line(self, line: str):
+        """Process a single line from the stream."""
+        line = line.strip()
+        if not line:
+            return
+
+        try:
+            data = json.loads(line)
+            msg_type = data.get("type")
+
+            if msg_type == "system":
+                subtype = data.get("subtype", "")
+                if subtype == "init":
+                    self.model = data.get("model", "unknown")
+                    self.session_id = data.get("session_id", "")
+                    self.session_start = datetime.now()
+                    self._print_header()
+
+            elif msg_type == "assistant":
+                message = data.get("message", {})
+                content = message.get("content", [])
+
+                # Process content parts
+                for part in content:
+                    if isinstance(part, dict):
+                        if part.get("type") == "text":
+                            text = part.get("text", "").strip()
+                            if text:
+                                self._start_new_group(text)
+
+                        elif part.get("type") == "tool_use":
+                            tool_id = part.get("id", "")
+                            tool_name = part.get("name", "unknown")
+                            tool_input = part.get("input", {})
+
+                            tool = ToolCall(
+                                name=tool_name,
+                                description=tool_input.get("description", ""),
+                                file_path=tool_input.get("file_path", ""),
+                                command=tool_input.get("command", "")
+                            )
+                            self._add_tool_to_group(tool_id, tool)
+
+            elif msg_type == "user":
+                message = data.get("message", {})
+                content = message.get("content", [])
+
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "tool_result":
+                        tool_id = part.get("tool_use_id", "")
+                        is_error = part.get("is_error", False)
+                        result_content = part.get("content", "")
+
+                        # Extract text from content
+                        if isinstance(result_content, list):
+                            texts = [p.get("text", "") for p in result_content if isinstance(p, dict)]
+                            result_content = "\n".join(texts)
+
+                        self._complete_tool(tool_id, str(result_content), is_error)
+
+            elif msg_type == "result":
+                self._flush_current_group()
+                self._print_footer(data)
+
+        except json.JSONDecodeError:
+            pass
+
+    def _print_footer(self, data: Dict[str, Any]):
+        """Print session footer."""
+        subtype = data.get("subtype", "")
+        duration_ms = data.get("duration_ms", 0)
+        duration_s = duration_ms / 1000
+
+        usage = data.get("usage", {})
+        total_tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+        cost = data.get("total_cost_usd", 0)
+
+        print()
+        print(f"{Colors.GRAY}───────────────────────────────────────────────────────────────────────{Colors.RESET}")
+
+        status_icon = "✓" if subtype == "success" else "✗"
+        status_color = Colors.GREEN if subtype == "success" else Colors.RED
+
+        stats = []
+        stats.append(f"{self.total_tools} tools")
+        if self.total_errors > 0:
+            stats.append(f"{Colors.RED}{self.total_errors} errors{Colors.RESET}")
+        stats.append(f"{duration_s:.1f}s")
+        if total_tokens > 0:
+            stats.append(f"{total_tokens:,} tokens")
+        if cost:
+            stats.append(f"${cost:.4f}")
+
+        print(f"{status_color}{status_icon} Complete{Colors.RESET} │ {' │ '.join(stats)}")
 
 
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Run Claude Code with pretty-printed stream output"
+        description="Run Claude Code with grouped intent display"
     )
-    parser.add_argument(
-        "-p", "--prompt",
-        help="Prompt to send to Claude"
-    )
-    parser.add_argument(
-        "-f", "--file",
-        help="File containing prompt"
-    )
-    parser.add_argument(
-        "--model",
-        help="Model to use"
-    )
+    parser.add_argument("-p", "--prompt", help="Prompt to send to Claude")
+    parser.add_argument("-f", "--file", help="File containing prompt")
+    parser.add_argument("--model", help="Model to use")
     parser.add_argument(
         "--dangerously-skip-permissions",
         action="store_true",
         help="Skip permission prompts"
     )
-    parser.add_argument(
-        "extra_args",
-        nargs="*",
-        help="Additional arguments to pass to claude"
-    )
-    parser.add_argument(
-        "--show-prompt",
-        action="store_true",
-        help="Show the full prompt in output (default: hidden)"
-    )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Enable verbose output from Claude"
-    )
+    parser.add_argument("extra_args", nargs="*", help="Additional arguments to pass to claude")
+    parser.add_argument("--show-prompt", action="store_true", help="Show the full prompt in output")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
 
     args = parser.parse_args()
 
     # Build claude command
-    cmd = ["claude", "--output-format", "stream-json"]
-
-    # --verbose is required when using -p with stream-json output format
-    if args.prompt or args.file or args.verbose:
-        cmd.append("--verbose")
+    cmd = ["claude", "--output-format", "stream-json", "--verbose"]
 
     if args.prompt:
         cmd.extend(["-p", args.prompt])
@@ -273,18 +355,9 @@ def main():
     if args.extra_args:
         cmd.extend(args.extra_args)
 
-    # Run claude and process output
-    if args.show_prompt:
-        print_header(f"Running: {' '.join(cmd)}")
-    else:
-        # Show command without the prompt (which can be very long)
-        display_cmd = [c for c in cmd if c != args.prompt] if args.prompt else cmd
-        if args.prompt:
-            display_cmd = display_cmd[:-1]  # Remove the -p flag too
-            display_cmd.append("-p <prompt hidden>")
-        print_header(f"Running: {' '.join(display_cmd)}")
-    print()
-    
+    # Process stream
+    processor = StreamProcessor()
+
     try:
         process = subprocess.Popen(
             cmd,
@@ -293,24 +366,24 @@ def main():
             text=True,
             bufsize=1
         )
-        
+
         for line in process.stdout:
-            process_stream_line(line)
+            processor.process_line(line)
             sys.stdout.flush()
-        
+
         process.wait()
-        
+
         if process.returncode != 0:
-            print_error(f"Claude exited with code {process.returncode}")
+            print(f"{Colors.RED}✗ Claude exited with code {process.returncode}{Colors.RESET}")
             sys.exit(process.returncode)
-    
+
     except KeyboardInterrupt:
-        print_warning("\nInterrupted by user")
+        print(f"\n{Colors.YELLOW}⚠ Interrupted{Colors.RESET}")
         if process:
             process.terminate()
         sys.exit(130)
     except Exception as e:
-        print_error(f"Error running claude: {e}")
+        print(f"{Colors.RED}✗ Error: {e}{Colors.RESET}")
         sys.exit(1)
 
 

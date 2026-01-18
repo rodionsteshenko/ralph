@@ -288,10 +288,11 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python prd_viewer.py prd.json           # Watch mode (auto-refresh)
-  python prd_viewer.py prd.json --once    # Display once and exit
-  python prd_viewer.py prd.json --expand  # Show all stories (don't collapse)
-  python prd_viewer.py prd.json -i 0.5    # Refresh every 0.5 seconds
+  python prd_viewer.py ~/myproject/       # Watch .ralph/prd.json in project
+  python prd_viewer.py prd.json           # Watch specific file
+  python prd_viewer.py --once             # Display once and exit
+  python prd_viewer.py --expand           # Show all stories (don't collapse)
+  python prd_viewer.py -i 0.5             # Refresh every 0.5 seconds
 
 Interactive Controls (watch mode):
   Enter/Space  Toggle expand/collapse closed phases
@@ -312,11 +313,11 @@ Phase Status:
         """,
     )
     parser.add_argument(
-        "prd_file",
+        "path",
         type=Path,
         nargs="?",
-        default=Path("prd.json"),
-        help="Path to PRD JSON file (default: prd.json)",
+        default=Path.cwd(),
+        help="Project directory (with .ralph/) or path to prd.json (default: current dir)",
     )
     parser.add_argument(
         "--once",
@@ -339,10 +340,18 @@ Phase Status:
 
     args = parser.parse_args()
 
-    # Resolve path
-    prd_path = args.prd_file
-    if not prd_path.is_absolute():
-        prd_path = Path.cwd() / prd_path
+    # Resolve path - check if it's a directory (project) or file
+    input_path = Path(args.path).resolve()
+
+    if input_path.is_dir():
+        # It's a directory - look for .ralph/prd.json
+        prd_path = input_path / ".ralph" / "prd.json"
+        if not prd_path.exists():
+            # Fallback to prd.json in directory
+            prd_path = input_path / "prd.json"
+    else:
+        # It's a file path
+        prd_path = input_path
 
     run_viewer(
         prd_path,

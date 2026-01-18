@@ -6,15 +6,26 @@ Utility scripts for manipulating prd.json files programmatically.
 Avoids manual JSON editing and reduces errors.
 
 Usage:
-    python prd_tools.py update-phases <prd_file> <phase_mapping_json>
-    python prd_tools.py list-stories <prd_file> [--phase N] [--status STATUS]
-    python prd_tools.py update-story <prd_file> <story_id> [--phase N] [--status STATUS]
-    python prd_tools.py summary <prd_file>
-    python prd_tools.py close-phase <prd_file> <phase_number>
-    python prd_tools.py skip-story <prd_file> <story_id>
-    python prd_tools.py start-story <prd_file> <story_id>
-    python prd_tools.py in-progress <prd_file>
-    python prd_tools.py clear-stale <prd_file> [--max-age-hours N]
+    python prd_tools.py <project_dir> <command> [args...]
+
+    # Or with explicit prd.json path:
+    python prd_tools.py path/to/prd.json <command> [args...]
+
+Commands:
+    summary                          Show PRD summary
+    list-stories [--phase N] [--status STATUS]
+    update-story <story_id> [--phase N] [--status STATUS]
+    close-phase <phase_number>       Mark all incomplete stories as skipped
+    skip-story <story_id>            Mark a story as skipped
+    start-story <story_id>           Mark a story as in_progress
+    in-progress                      Show all in-progress stories
+    clear-stale [--max-age-hours N]  Clear stale in_progress status
+    update-phases <phase_mapping_json>
+
+Examples:
+    python prd_tools.py ~/myproject/ summary
+    python prd_tools.py ~/myproject/ skip-story US-023
+    python prd_tools.py ~/myproject/ close-phase 2
 
 Story Status Values:
     "incomplete"   - Not started (default)
@@ -27,6 +38,34 @@ import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
+
+def resolve_prd_path(path_arg: str) -> Path:
+    """Resolve PRD path from a directory or file path.
+
+    Args:
+        path_arg: Either a project directory (with .ralph/) or direct path to prd.json
+
+    Returns:
+        Path to prd.json file
+    """
+    path = Path(path_arg).resolve()
+
+    if path.is_dir():
+        # It's a directory - look for .ralph/prd.json
+        prd_path = path / ".ralph" / "prd.json"
+        if prd_path.exists():
+            return prd_path
+        # Fallback to prd.json in directory
+        prd_path = path / "prd.json"
+        if prd_path.exists():
+            return prd_path
+        raise FileNotFoundError(f"No prd.json found in {path}/.ralph/ or {path}/")
+    else:
+        # It's a file path
+        if not path.exists():
+            raise FileNotFoundError(f"PRD file not found: {path}")
+        return path
 
 
 class PRDManager:
@@ -303,46 +342,56 @@ class PRDManager:
 
 def main():
     """CLI interface for PRD tools."""
-    if len(sys.argv) < 2:
+    if len(sys.argv) < 3:
         print(__doc__)
         sys.exit(1)
 
-    command = sys.argv[1]
+    # First arg is project dir or prd file, second is command
+    path_arg = sys.argv[1]
+    command = sys.argv[2]
+
+    try:
+        prd_path = resolve_prd_path(path_arg)
+    except FileNotFoundError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
+
+    # Remaining args start at index 3
+    args = sys.argv[3:]
 
     if command == "update-phases":
-        if len(sys.argv) < 4:
-            print("Usage: prd_tools.py update-phases <prd_file> <phase_mapping_json>")
+        if len(args) < 1:
+            print("Usage: prd_tools.py <project> update-phases <phase_mapping_json>")
             sys.exit(1)
 
-        prd_file = sys.argv[2]
-        phase_mapping_json = sys.argv[3]
+        phase_mapping_json = args[0]
 
         with open(phase_mapping_json) as f:
             phase_mapping = json.load(f)
 
-        manager = PRDManager(prd_file)
+        manager = PRDManager(prd_path)
         updated = manager.bulk_update_phases(phase_mapping)
         manager.save()
 
         print(f"Updated {len(updated)} stories: {', '.join(updated)}")
 
     elif command == "list-stories":
-        if len(sys.argv) < 3:
-            print("Usage: prd_tools.py list-stories <prd_file> [--phase N] [--status STATUS]")
-            sys.exit(1)
-
-        prd_file = sys.argv[2]
         phase = None
         status = None
 
         # Parse optional flags
-        for i in range(3, len(sys.argv), 2):
-            if sys.argv[i] == "--phase":
-                phase = int(sys.argv[i + 1])
-            elif sys.argv[i] == "--status":
-                status = sys.argv[i + 1]
+        i = 0
+        while i < len(args):
+            if args[i] == "--phase" and i + 1 < len(args):
+                phase = int(args[i + 1])
+                i += 2
+            elif args[i] == "--status" and i + 1 < len(args):
+                status = args[i + 1]
+                i += 2
+            else:
+                i += 1
 
-        manager = PRDManager(prd_file)
+        manager = PRDManager(prd_path)
         stories = manager.list_stories(phase=phase, status=status)
 
         for story in stories:
@@ -352,29 +401,29 @@ def main():
             )
 
     elif command == "update-story":
-        if len(sys.argv) < 4:
+        if len(args) < 1:
             print(
-                "Usage: prd_tools.py update-story <prd_file> <story_id> "
+                "Usage: prd_tools.py <project> update-story <story_id> "
                 "[--phase N] [--status STATUS]"
             )
             sys.exit(1)
 
-        prd_file = sys.argv[2]
-        story_id = sys.argv[3]
-
-        manager = PRDManager(prd_file)
+        story_id = args[0]
+        manager = PRDManager(prd_path)
 
         # Parse optional flags
-        for i in range(4, len(sys.argv), 2):
-            if sys.argv[i] == "--phase":
-                new_phase = int(sys.argv[i + 1])
+        i = 1
+        while i < len(args):
+            if args[i] == "--phase" and i + 1 < len(args):
+                new_phase = int(args[i + 1])
                 if manager.update_story_phase(story_id, new_phase):
                     print(f"Updated {story_id} to phase {new_phase}")
                 else:
                     print(f"Story {story_id} not found")
                     sys.exit(1)
-            elif sys.argv[i] == "--status":
-                new_status = sys.argv[i + 1].lower()
+                i += 2
+            elif args[i] == "--status" and i + 1 < len(args):
+                new_status = args[i + 1].lower()
                 if new_status in ["true", "done"]:
                     new_status = "complete"
                 elif new_status == "false":
@@ -384,19 +433,17 @@ def main():
                 else:
                     print(f"Story {story_id} not found")
                     sys.exit(1)
+                i += 2
+            else:
+                i += 1
 
         manager.save()
 
     elif command == "summary":
-        if len(sys.argv) < 3:
-            print("Usage: prd_tools.py summary <prd_file>")
-            sys.exit(1)
-
-        prd_file = sys.argv[2]
-        manager = PRDManager(prd_file)
+        manager = PRDManager(prd_path)
         summary = manager.get_summary()
 
-        print("\n📊 PRD Summary")
+        print(f"\n📊 PRD Summary ({prd_path})")
         print(f"{'=' * 50}")
         print(f"Total Stories: {summary['total_stories']}")
         print(f"Completed: {summary['completed_stories']}")
@@ -405,8 +452,9 @@ def main():
         print(f"Progress: {summary['completion_percentage']}%")
         print("\n📋 By Phase:")
 
+        phases_meta = manager.data.get("metadata", {}).get("phases", {})
         for phase, counts in sorted(summary["by_phase"].items()):
-            phase_meta = manager.data["metadata"]["phases"].get(str(phase), {})
+            phase_meta = phases_meta.get(str(phase), {})
             phase_name = phase_meta.get("name", f"Phase {phase}")
             closed_badge = " [CLOSED]" if manager.is_phase_closed(phase) else ""
             skipped = counts.get("skipped", 0)
@@ -415,14 +463,13 @@ def main():
             print(f"  Phase {phase} ({phase_name}): {stats}{closed_badge}")
 
     elif command == "close-phase":
-        if len(sys.argv) < 4:
-            print("Usage: prd_tools.py close-phase <prd_file> <phase_number>")
+        if len(args) < 1:
+            print("Usage: prd_tools.py <project> close-phase <phase_number>")
             sys.exit(1)
 
-        prd_file = sys.argv[2]
-        phase = int(sys.argv[3])
+        phase = int(args[0])
 
-        manager = PRDManager(prd_file)
+        manager = PRDManager(prd_path)
         skipped = manager.close_phase(phase)
         manager.save()
 
@@ -434,14 +481,13 @@ def main():
             print(f"No incomplete stories in phase {phase}")
 
     elif command == "skip-story":
-        if len(sys.argv) < 4:
-            print("Usage: prd_tools.py skip-story <prd_file> <story_id>")
+        if len(args) < 1:
+            print("Usage: prd_tools.py <project> skip-story <story_id>")
             sys.exit(1)
 
-        prd_file = sys.argv[2]
-        story_id = sys.argv[3]
+        story_id = args[0]
 
-        manager = PRDManager(prd_file)
+        manager = PRDManager(prd_path)
         if manager.skip_story(story_id):
             manager.save()
             print(f"⊘ Skipped story {story_id}")
@@ -450,14 +496,13 @@ def main():
             sys.exit(1)
 
     elif command == "start-story":
-        if len(sys.argv) < 4:
-            print("Usage: prd_tools.py start-story <prd_file> <story_id>")
+        if len(args) < 1:
+            print("Usage: prd_tools.py <project> start-story <story_id>")
             sys.exit(1)
 
-        prd_file = sys.argv[2]
-        story_id = sys.argv[3]
+        story_id = args[0]
 
-        manager = PRDManager(prd_file)
+        manager = PRDManager(prd_path)
         if manager.start_story(story_id):
             manager.save()
             print(f"▶ Started story {story_id}")
@@ -466,12 +511,7 @@ def main():
             sys.exit(1)
 
     elif command == "in-progress":
-        if len(sys.argv) < 3:
-            print("Usage: prd_tools.py in-progress <prd_file>")
-            sys.exit(1)
-
-        prd_file = sys.argv[2]
-        manager = PRDManager(prd_file)
+        manager = PRDManager(prd_path)
         in_progress = manager.get_in_progress()
 
         if in_progress:
@@ -483,19 +523,18 @@ def main():
             print("No stories currently in progress")
 
     elif command == "clear-stale":
-        if len(sys.argv) < 3:
-            print("Usage: prd_tools.py clear-stale <prd_file> [--max-age-hours N]")
-            sys.exit(1)
-
-        prd_file = sys.argv[2]
         max_age = 24  # default
 
         # Parse optional flags
-        for i in range(3, len(sys.argv), 2):
-            if sys.argv[i] == "--max-age-hours":
-                max_age = int(sys.argv[i + 1])
+        i = 0
+        while i < len(args):
+            if args[i] == "--max-age-hours" and i + 1 < len(args):
+                max_age = int(args[i + 1])
+                i += 2
+            else:
+                i += 1
 
-        manager = PRDManager(prd_file)
+        manager = PRDManager(prd_path)
         cleared = manager.clear_stale_in_progress(max_age)
         manager.save()
 

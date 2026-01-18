@@ -20,6 +20,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
 import re
 
 try:
@@ -75,23 +76,84 @@ def call_claude_code(prompt: str, model: str = "claude-sonnet-4-5-20250929", tim
 
 
 class RalphConfig:
-    """Configuration for Ralph execution."""
-    
-    def __init__(self, config_path: Optional[Path] = None):
-        self.config_path = config_path or Path(".ralph/config.json")
+    """Configuration for Ralph execution.
+
+    Ralph uses a centralized .ralph/ directory structure:
+        project/
+        ├── .ralph/
+        │   ├── config.json      # Configuration
+        │   ├── prd.json         # PRD file
+        │   ├── progress.md      # Progress tracking
+        │   ├── guardrails.md    # Learned failures
+        │   ├── logs/            # Detailed iteration logs
+        │   └── skills/          # Project-specific skills
+        ├── .claude/
+        │   └── skills/          # Claude Code skills (build, test, etc.)
+        └── AGENTS.md            # Codebase patterns
+
+    When running Ralph, point it to the project directory (containing .ralph/).
+    """
+
+    def __init__(self, project_dir: Optional[Path] = None, config_path: Optional[Path] = None):
+        # Support both old (config_path) and new (project_dir) initialization
+        if project_dir:
+            self.project_dir = Path(project_dir).resolve()
+        elif config_path:
+            # Legacy: derive project_dir from config_path
+            self.project_dir = Path(config_path).parent.parent.resolve()
+        else:
+            self.project_dir = Path.cwd().resolve()
+
+        self.ralph_dir = self.project_dir / ".ralph"
+        self.config_path = self.ralph_dir / "config.json"
         self.config = self._load_config()
         self._ensure_directories()
-    
+
+    @property
+    def prd_path(self) -> Path:
+        """Path to PRD file."""
+        return self.ralph_dir / "prd.json"
+
+    @property
+    def progress_path(self) -> Path:
+        """Path to progress file."""
+        return self.ralph_dir / "progress.md"
+
+    @property
+    def guardrails_path(self) -> Path:
+        """Path to guardrails file."""
+        return self.ralph_dir / "guardrails.md"
+
+    @property
+    def logs_dir(self) -> Path:
+        """Path to logs directory."""
+        return self.ralph_dir / "logs"
+
+    @property
+    def skills_dir(self) -> Path:
+        """Path to Ralph skills directory."""
+        return self.ralph_dir / "skills"
+
+    @property
+    def claude_skills_dir(self) -> Path:
+        """Path to Claude Code skills directory."""
+        return self.project_dir / ".claude" / "skills"
+
+    @property
+    def agents_md_path(self) -> Path:
+        """Path to AGENTS.md file."""
+        return self.project_dir / "AGENTS.md"
+
     def _load_config(self) -> Dict:
         """Load configuration from file or create default."""
         if self.config_path.exists():
             with open(self.config_path, 'r') as f:
                 return json.load(f)
-        
+
         # Default configuration
         return {
             "project": {
-                "name": "Unknown",
+                "name": self.project_dir.name,
                 "type": "node",
                 "packageManager": "npm"
             },
@@ -130,34 +192,29 @@ class RalphConfig:
                 "iterationTimeout": 3600,
                 "maxFailures": 3,
                 "updateAgentsMd": True,
+                "createSkills": True,
                 "enableMetrics": True
             },
-            "paths": {
-                "prdFile": "prd.json",
-                "progressFile": "progress.txt",
-                "archiveDir": "archive",
-                "scriptsDir": ".ralph"
-            },
             "claude": {
-                "model": "claude-3-haiku-20240307",
+                "model": "claude-sonnet-4-5-20250929",
                 "maxTokens": 8192,
                 "temperature": 0.7
             }
         }
-    
+
     def _ensure_directories(self):
         """Ensure required directories exist."""
-        paths = self.config["paths"]
-        Path(paths["archiveDir"]).mkdir(parents=True, exist_ok=True)
-        Path(paths["scriptsDir"]).mkdir(parents=True, exist_ok=True)
-        Path(".ralph/skills").mkdir(parents=True, exist_ok=True)
-    
+        self.ralph_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.skills_dir.mkdir(parents=True, exist_ok=True)
+        self.claude_skills_dir.mkdir(parents=True, exist_ok=True)
+
     def save(self):
         """Save configuration to file."""
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.ralph_dir.mkdir(parents=True, exist_ok=True)
         with open(self.config_path, 'w') as f:
             json.dump(self.config, f, indent=2)
-    
+
     def get(self, key: str, default=None):
         """Get configuration value using dot notation."""
         keys = key.split('.')
@@ -168,6 +225,256 @@ class RalphConfig:
             else:
                 return default
         return value
+
+
+@dataclass
+class ValidationIssue:
+    """A validation issue (error or warning)."""
+    severity: str  # 'error' or 'warning'
+    code: str      # Short code like 'INVALID_STATUS'
+    message: str   # Human-readable message
+    story_id: Optional[str] = None
+    phase: Optional[int] = None
+
+
+@dataclass
+class ValidationResult:
+    """Result of PRD validation."""
+    valid: bool
+    errors: List[ValidationIssue]
+    warnings: List[ValidationIssue]
+
+    def format(self) -> str:
+        """Format validation results for display."""
+        lines = []
+        if self.errors:
+            lines.append("❌ Errors:")
+            for issue in self.errors:
+                context = f" (story {issue.story_id})" if issue.story_id else ""
+                context += f" (phase {issue.phase})" if issue.phase else ""
+                lines.append(f"  - [{issue.code}]{context}: {issue.message}")
+        if self.warnings:
+            lines.append("⚠️  Warnings:")
+            for issue in self.warnings:
+                context = f" (story {issue.story_id})" if issue.story_id else ""
+                context += f" (phase {issue.phase})" if issue.phase else ""
+                lines.append(f"  - [{issue.code}]{context}: {issue.message}")
+        if not self.errors and not self.warnings:
+            lines.append("✅ PRD validation passed")
+        return "\n".join(lines)
+
+
+def validate_prd(prd: Dict) -> ValidationResult:
+    """Validate PRD structure and return detailed results.
+
+    Checks for:
+    - Required fields (project, userStories)
+    - Valid status values
+    - Phase references
+    - Unique story IDs
+    - Dependency references
+    - Circular dependencies
+    - Story sizing concerns
+    """
+    errors: List[ValidationIssue] = []
+    warnings: List[ValidationIssue] = []
+
+    # Check required top-level fields
+    if not prd.get("project"):
+        warnings.append(ValidationIssue(
+            severity="warning",
+            code="MISSING_PROJECT",
+            message="Missing 'project' field - will use current directory name"
+        ))
+
+    if not prd.get("description"):
+        warnings.append(ValidationIssue(
+            severity="warning",
+            code="MISSING_DESCRIPTION",
+            message="Missing 'description' field - add a project description"
+        ))
+
+    if "userStories" not in prd:
+        errors.append(ValidationIssue(
+            severity="error",
+            code="MISSING_STORIES",
+            message="Missing 'userStories' array - PRD must have at least one story"
+        ))
+        return ValidationResult(valid=False, errors=errors, warnings=warnings)
+
+    stories = prd.get("userStories", [])
+    if len(stories) == 0:
+        errors.append(ValidationIssue(
+            severity="error",
+            code="EMPTY_STORIES",
+            message="'userStories' array is empty - PRD must have at least one story"
+        ))
+
+    # Validate phases if present
+    phases = prd.get("phases", {})
+    for phase_key, phase_val in phases.items():
+        if not isinstance(phase_val, dict):
+            errors.append(ValidationIssue(
+                severity="error",
+                code="INVALID_PHASE",
+                message=f"Phase '{phase_key}' must be an object with 'name' field",
+                phase=int(phase_key) if phase_key.isdigit() else None
+            ))
+        elif not phase_val.get("name"):
+            warnings.append(ValidationIssue(
+                severity="warning",
+                code="MISSING_PHASE_NAME",
+                message=f"Phase '{phase_key}' missing 'name' field",
+                phase=int(phase_key) if phase_key.isdigit() else None
+            ))
+
+    # Track story IDs for duplicate/dependency checking
+    story_ids: set = set()
+    valid_statuses = {"incomplete", "in_progress", "complete", "skipped"}
+    in_progress_stories: List[str] = []
+
+    for i, story in enumerate(stories):
+        story_id = story.get("id", f"story[{i}]")
+
+        # Check for duplicate IDs
+        if story_id in story_ids:
+            errors.append(ValidationIssue(
+                severity="error",
+                code="DUPLICATE_ID",
+                message=f"Duplicate story ID: '{story_id}'",
+                story_id=story_id
+            ))
+        story_ids.add(story_id)
+
+        # Check required story fields
+        if not story.get("id"):
+            warnings.append(ValidationIssue(
+                severity="warning",
+                code="MISSING_ID",
+                message=f"Story at index {i} missing 'id' field - will auto-generate",
+                story_id=story_id
+            ))
+
+        if not story.get("title"):
+            errors.append(ValidationIssue(
+                severity="error",
+                code="MISSING_TITLE",
+                message="Story missing 'title' field",
+                story_id=story_id
+            ))
+
+        # Validate status
+        status = story.get("status", "incomplete")
+        if status not in valid_statuses:
+            errors.append(ValidationIssue(
+                severity="error",
+                code="INVALID_STATUS",
+                message=f"Invalid status '{status}' - must be one of: {', '.join(valid_statuses)}",
+                story_id=story_id
+            ))
+
+        if status == "in_progress":
+            in_progress_stories.append(story_id)
+
+        # Validate phase reference
+        story_phase = story.get("phase")
+        if story_phase is not None and phases:
+            if str(story_phase) not in phases:
+                errors.append(ValidationIssue(
+                    severity="error",
+                    code="INVALID_PHASE_REF",
+                    message=f"References undefined phase '{story_phase}'",
+                    story_id=story_id,
+                    phase=story_phase
+                ))
+
+        # Check acceptance criteria
+        criteria = story.get("acceptanceCriteria", [])
+        if not criteria:
+            warnings.append(ValidationIssue(
+                severity="warning",
+                code="MISSING_CRITERIA",
+                message="No acceptance criteria defined",
+                story_id=story_id
+            ))
+        elif not any("typecheck" in c.lower() for c in criteria):
+            warnings.append(ValidationIssue(
+                severity="warning",
+                code="MISSING_TYPECHECK",
+                message="Acceptance criteria should include 'Typecheck passes'",
+                story_id=story_id
+            ))
+
+        # Check story size (heuristic: long description or many criteria)
+        description = story.get("description", "")
+        if len(description) > 500:
+            warnings.append(ValidationIssue(
+                severity="warning",
+                code="LARGE_STORY",
+                message="Description is very long - consider breaking into smaller stories",
+                story_id=story_id
+            ))
+        if len(criteria) > 8:
+            warnings.append(ValidationIssue(
+                severity="warning",
+                code="MANY_CRITERIA",
+                message=f"{len(criteria)} acceptance criteria - story may be too large",
+                story_id=story_id
+            ))
+
+    # Check for multiple in_progress stories
+    if len(in_progress_stories) > 1:
+        warnings.append(ValidationIssue(
+            severity="warning",
+            code="MULTIPLE_IN_PROGRESS",
+            message=f"Multiple stories in_progress: {', '.join(in_progress_stories)}"
+        ))
+
+    # Check dependencies
+    for story in stories:
+        story_id = story.get("id", "unknown")
+        deps = story.get("dependencies", [])
+        for dep in deps:
+            if dep not in story_ids:
+                errors.append(ValidationIssue(
+                    severity="error",
+                    code="INVALID_DEPENDENCY",
+                    message=f"Depends on unknown story '{dep}'",
+                    story_id=story_id
+                ))
+
+    # Check for circular dependencies
+    def has_circular_dep(story_id: str, visited: set, path: List[str]) -> Optional[List[str]]:
+        if story_id in path:
+            return path[path.index(story_id):] + [story_id]
+        if story_id in visited:
+            return None
+        visited.add(story_id)
+        path.append(story_id)
+        story = next((s for s in stories if s.get("id") == story_id), None)
+        if story:
+            for dep in story.get("dependencies", []):
+                cycle = has_circular_dep(dep, visited, path.copy())
+                if cycle:
+                    return cycle
+        return None
+
+    visited: set = set()
+    for story in stories:
+        cycle = has_circular_dep(story.get("id", ""), visited, [])
+        if cycle:
+            errors.append(ValidationIssue(
+                severity="error",
+                code="CIRCULAR_DEPENDENCY",
+                message=f"Circular dependency detected: {' → '.join(cycle)}"
+            ))
+            break  # Only report first cycle
+
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings
+    )
 
 
 class PRDParser:
@@ -276,36 +583,44 @@ Output ONLY valid JSON, no extra formatting or explanations."""
     
     def _validate_prd_json(self, prd_json: Dict, prd_path: Path) -> Dict:
         """Validate and enhance PRD JSON structure."""
-        # Ensure required fields
+        # Run structured validation first
+        result = validate_prd(prd_json)
+        if result.errors or result.warnings:
+            print("\n📋 PRD Validation Results:")
+            print(result.format())
+            if result.errors:
+                print("\n⚠️  Errors found - auto-fixing where possible...")
+
+        # Ensure required fields (auto-fix)
         if "project" not in prd_json:
             prd_json["project"] = Path.cwd().name
-        
+
         if "branchName" not in prd_json:
             # Generate from project name or PRD filename
             feature_name = prd_path.stem.replace("prd-", "").replace("_", "-")
             prd_json["branchName"] = f"ralph/{feature_name}"
-        
+
         if "description" not in prd_json:
             prd_json["description"] = "Feature implementation"
-        
+
         # Ensure userStories array
         if "userStories" not in prd_json:
             prd_json["userStories"] = []
-        
+
         # Validate and enhance each story
         for i, story in enumerate(prd_json["userStories"]):
             if "id" not in story:
                 story["id"] = f"US-{i+1:03d}"
-            
+
             if "priority" not in story:
                 story["priority"] = i + 1
-            
+
             if "status" not in story:
                 story["status"] = "incomplete"
-            
+
             if "notes" not in story:
                 story["notes"] = ""
-            
+
             # Ensure acceptance criteria includes typecheck
             if "acceptanceCriteria" in story:
                 criteria = story["acceptanceCriteria"]
@@ -313,7 +628,7 @@ Output ONLY valid JSON, no extra formatting or explanations."""
                     criteria.append("Typecheck passes")
             else:
                 story["acceptanceCriteria"] = ["Typecheck passes"]
-        
+
         # Add metadata
         now = datetime.now().isoformat()
         prd_json["metadata"] = {
@@ -323,7 +638,7 @@ Output ONLY valid JSON, no extra formatting or explanations."""
             "completedStories": sum(1 for s in prd_json["userStories"] if s.get("status") == "complete"),
             "currentIteration": prd_json.get("metadata", {}).get("currentIteration", 0)
         }
-        
+
         return prd_json
 
 
@@ -450,6 +765,90 @@ class RalphLoop:
         if prd_path is None:
             prd_path = Path(self.config.get("paths.prdFile", "prd.json"))
         return prd_path.with_suffix("").with_name(prd_path.stem + "_progress.md")
+
+    def _load_guardrails(self) -> str:
+        """Load guardrails from .ralph/guardrails.md if it exists."""
+        guardrails_path = self.config.guardrails_path
+        if guardrails_path.exists():
+            try:
+                with open(guardrails_path, 'r') as f:
+                    return f.read()
+            except Exception:
+                pass
+        return ""
+
+    def _update_guardrails(self, story: Dict, error_summary: str, failure_count: int):
+        """Update guardrails file with a new learning after repeated failures.
+
+        Only updates after 2+ consecutive failures on the same story.
+        """
+        if failure_count < 2:
+            return
+
+        guardrails_path = self.config.guardrails_path
+
+        # Create file with header if it doesn't exist
+        if not guardrails_path.exists():
+            guardrails_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(guardrails_path, 'w') as f:
+                f.write("# Guardrails\n\n")
+                f.write("Learnings from failures to prevent repeated mistakes.\n\n")
+                f.write("---\n\n")
+
+        # Append new learning
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        with open(guardrails_path, 'a') as f:
+            f.write(f"## {story['id']}: {story['title']}\n")
+            f.write(f"**Added**: {timestamp} (after {failure_count} failures)\n\n")
+            f.write(f"**Issue**:\n```\n{error_summary[:500]}\n```\n\n")
+            f.write("**Rule**: _[Agent should analyze and fill this in on next iteration]_\n\n")
+            f.write("---\n\n")
+
+        if HAS_RICH:
+            console.print(f"[yellow]📝 Updated guardrails with learning from {story['id']}[/yellow]")
+        else:
+            print(f"📝 Updated guardrails with learning from {story['id']}")
+
+    def _get_design_doc(self, prd: Dict) -> Optional[str]:
+        """Get design document path from PRD if specified."""
+        design_doc = prd.get("designDoc", {})
+        if isinstance(design_doc, dict):
+            return design_doc.get("path")
+        elif isinstance(design_doc, str):
+            return design_doc
+        return None
+
+    def _build_completed_stories_prose(self, prd: Dict) -> str:
+        """Build a prose description of what's been completed, not just IDs."""
+        completed = [s for s in prd.get("userStories", []) if s.get("status") == "complete"]
+        if not completed:
+            return ""
+
+        # Group by phase if phases exist
+        phases = prd.get("phases", {})
+        if phases:
+            by_phase: Dict[int, List[Dict]] = {}
+            for story in completed:
+                phase = story.get("phase", 1)
+                if phase not in by_phase:
+                    by_phase[phase] = []
+                by_phase[phase].append(story)
+
+            lines = []
+            for phase_num in sorted(by_phase.keys()):
+                phase_info = phases.get(str(phase_num), {})
+                phase_name = phase_info.get("name", f"Phase {phase_num}")
+                lines.append(f"\n**{phase_name}**:")
+                for story in by_phase[phase_num]:
+                    # Use title as the main description
+                    lines.append(f"- {story['title']}")
+            return "\n".join(lines)
+        else:
+            # No phases, just list stories
+            lines = []
+            for story in completed:
+                lines.append(f"- {story['title']}")
+            return "\n".join(lines)
 
     def _generate_feature_summary(self, completed_stories: List[Dict], remaining_stories: List[Dict], prd: Dict) -> str:
         """Generate AI-powered feature summary of what was built and what's testable."""
@@ -832,6 +1231,18 @@ End with a "What's Next" section if there are remaining stories."""
                 self.failure_count += 1
                 print(f"❌ Story {story['id']} failed ({iteration_duration:.1f}s)")
                 print(f"   Consecutive failures: {self.failure_count}/{max_failures}")
+
+                # Update guardrails after 2+ consecutive failures on same story
+                if self.failure_count >= 2 and self.last_story_id == story['id']:
+                    # Get error summary from the progress file (last failure logged)
+                    progress_file = Path(self.config.get("paths.progressFile", "progress.txt"))
+                    error_summary = ""
+                    if progress_file.exists():
+                        with open(progress_file, 'r') as f:
+                            lines = f.readlines()
+                            # Get last 20 lines for error context
+                            error_summary = "".join(lines[-20:])
+                    self._update_guardrails(story, error_summary, self.failure_count)
             
             # Brief pause between iterations
             time.sleep(2)
@@ -1269,17 +1680,32 @@ Be specific about why this story makes sense given the current codebase state an
             import re
             working_dir = re.sub(r'[^a-z0-9-]', '', working_dir)
 
+        # Load guardrails (learned failures)
+        guardrails = self._load_guardrails()
+
+        # Get design doc reference
+        design_doc_path = self._get_design_doc(prd)
+
+        # Build prose description of completed work
+        completed_prose = self._build_completed_stories_prose(prd)
+
+        # Count remaining stories
+        remaining_count = len([s for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")])
+
         return {
             "story": story,
             "prd": {
+                "project": prd.get("project", ""),
                 "description": prd.get("description", ""),
-                "completedStories": [s["id"] for s in prd["userStories"] if s.get("status") == "complete"],
-                "remainingStories": [s["id"] for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
+                "completedProse": completed_prose,
+                "remainingCount": remaining_count,
+                "designDocPath": design_doc_path
             },
             "progress": recent_progress,
             "progressMd": progress_md_content,
             "progressMdPath": str(progress_md_path),
             "agentsMd": agents_md,
+            "guardrails": guardrails,
             "projectConfig": {
                 "commands": self.config.get("commands", {}),
                 "qualityGates": self.config.get("qualityGates", {})
@@ -1350,14 +1776,15 @@ Example format to append:
 - Use relative paths (e.g., `memory/blocks.py`, not `{working_dir}/memory/blocks.py`)
 """
 
-        # Build completed stories context with more detail
+        # Build completed stories context with prose descriptions
         completed_stories_context = ""
-        if context['prd'].get('completedStories'):
+        completed_prose = context['prd'].get('completedProse', '')
+        if completed_prose:
             completed_stories_context = f"""
 ## What's Already Built
 
-The following user stories have been completed and their code is in the codebase:
-{chr(10).join(f"- {story_id}" for story_id in context['prd']['completedStories'])}
+The following features have been implemented and their code is in the codebase:
+{completed_prose}
 
 **IMPORTANT**: Before implementing, read the existing code to understand:
 - What patterns are being used
@@ -1365,6 +1792,44 @@ The following user stories have been completed and their code is in the codebase
 - How similar features are implemented
 - What dependencies are available
 """
+
+        # Build guardrails section (learned failures)
+        guardrails_section = ""
+        guardrails = context.get('guardrails', '')
+        if guardrails:
+            guardrails_section = f"""
+## Guardrails (Learned from Past Failures)
+
+**READ THIS CAREFULLY** - These are patterns that caused failures in previous iterations:
+
+{guardrails}
+
+Follow these rules to avoid repeating the same mistakes.
+"""
+
+        # Build design document reference section
+        design_doc_section = ""
+        design_doc_path = context['prd'].get('designDocPath')
+        if design_doc_path:
+            design_doc_section = f"""
+## Design Document
+
+A design document is available at: `{design_doc_path}`
+
+**IMPORTANT**: If you need to understand:
+- Overall architecture decisions
+- How components should interact
+- Design patterns to follow
+- Implementation guidelines
+
+Read the design document for detailed guidance.
+"""
+
+        # Remaining work context
+        remaining_context = ""
+        remaining_count = context['prd'].get('remainingCount', 0)
+        if remaining_count > 1:
+            remaining_context = f"\n**Remaining**: {remaining_count - 1} more stories after this one."
 
         return f"""You are an autonomous coding agent working on a software project.
 
@@ -1381,9 +1846,10 @@ Implement the following user story:
 
 ## Project Context
 
-**Project**: {context['prd'].get('description', 'Unknown')}
+**Project**: {context['prd'].get('project', '')} - {context['prd'].get('description', 'Unknown')}{remaining_context}
+{design_doc_section}
+{guardrails_section}
 {completed_stories_context}
-**Remaining Stories**: {', '.join(context['prd']['remainingStories'][:10]) or 'None'}{' (and more...)' if len(context['prd']['remainingStories']) > 10 else ''}
 {progress_section}
 {agents_section}
 {working_dir_section}
@@ -1648,6 +2114,88 @@ After implementing, provide a summary with:
 - Dependencies added
 - Known limitations or future improvements needed
 
+## Continuous Improvement: Skills & Documentation
+
+As you work, you should continuously improve the codebase's tooling and documentation.
+
+### Creating Claude Code Skills
+
+**IMPORTANT**: Create skills in `.claude/skills/` for reusable operations you discover or implement.
+
+Skills make future work faster and more reliable. Create a skill when you:
+- Run the same sequence of commands repeatedly (build, test, deploy)
+- Discover project-specific patterns or workflows
+- Implement something that would help future agents
+
+**Skill structure** (create in `.claude/skills/<skill-name>/SKILL.md`):
+```yaml
+---
+name: skill-name-kebab-case
+description: Brief description of when to use this skill (triggers automatic loading)
+---
+
+# Skill Name
+
+## Quick Start
+[Most common usage pattern]
+
+## Commands
+[Key commands with explanations]
+
+## Examples
+[Concrete examples]
+
+## Common Issues
+[Troubleshooting tips]
+```
+
+**Skills to consider creating:**
+- `build` - How to build the project
+- `test` - How to run tests (unit, E2E, specific modules)
+- `lint` - How to lint and auto-fix
+- `deploy` - Deployment steps if applicable
+- `db-migrate` - Database migration commands
+- Project-specific workflows
+
+**Example skill** (`.claude/skills/test/SKILL.md`):
+```yaml
+---
+name: test
+description: Run tests for this project. Use when asked to test, verify, or check code works.
+---
+
+# Testing
+
+## Quick Start
+```bash
+pytest tests/           # All tests
+pytest tests/ -m e2e    # E2E tests only (requires API keys)
+```
+
+## Test Categories
+- Unit tests: `pytest tests/ -m "not e2e"`
+- E2E tests: `ANTHROPIC_API_KEY=xxx pytest -m e2e`
+
+## Coverage
+```bash
+pytest --cov=src --cov-report=html
+```
+```
+
+### Updating AGENTS.md
+
+**IMPORTANT**: If you discover important codebase patterns, conventions, or knowledge that would help future agents, update `AGENTS.md`.
+
+Add to AGENTS.md when you discover:
+- Project structure patterns
+- Naming conventions
+- Architecture decisions
+- Common gotchas or pitfalls
+- Key dependencies and how they're used
+- Testing patterns specific to this project
+
+This helps future agents (and humans) work more effectively in this codebase.
+
 Begin implementation now."""
     
     def _find_agents_md(self) -> str:
@@ -1834,75 +2382,107 @@ def show_ralph_banner():
 
 def main():
     """Main CLI entry point."""
-    parser = argparse.ArgumentParser(description="Ralph: Autonomous AI Agent Loop")
+    parser = argparse.ArgumentParser(
+        description="Ralph: Autonomous AI Agent Loop",
+        epilog="""
+Examples:
+    ralph init myproject/              # Initialize Ralph in myproject/
+    ralph execute myproject/           # Execute PRD in myproject/.ralph/
+    ralph status myproject/            # Show status
+    ralph process-prd myproject/ prd.txt  # Process PRD and save to myproject/.ralph/prd.json
+        """
+    )
+
+    # Global project directory argument
+    parser.add_argument(
+        "project_dir",
+        type=Path,
+        nargs="?",
+        default=Path.cwd(),
+        help="Project directory containing .ralph/ (default: current directory)"
+    )
+
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
-    
+
+    # init command
+    init_parser = subparsers.add_parser("init", help="Initialize Ralph configuration in project")
+    init_parser.add_argument("--detect-config", action="store_true", help="Auto-detect project configuration")
+
     # process-prd command
-    prd_parser = subparsers.add_parser("process-prd", help="Convert PRD document to prd.json")
+    prd_parser = subparsers.add_parser("process-prd", help="Convert PRD document to .ralph/prd.json")
     prd_parser.add_argument("prd_file", type=Path, help="Path to PRD source file")
-    prd_parser.add_argument("--output", type=Path, help="Output prd.json path")
-    
-    # execute-plan command
-    exec_parser = subparsers.add_parser("execute-plan", help="Execute Ralph loop")
-    exec_parser.add_argument("--prd", type=Path, help="Path to prd.json file")
+
+    # execute-plan command (also aliased as just 'execute')
+    exec_parser = subparsers.add_parser("execute-plan", help="Execute Ralph loop", aliases=["execute", "run"])
     exec_parser.add_argument("--max-iterations", type=int, help="Max iterations (0 = unlimited)")
     exec_parser.add_argument("--phase", type=int, help="Execute only stories in this phase (e.g., 1, 2, 3)")
-    exec_parser.add_argument("--config", type=Path, help="Path to config file")
     exec_parser.add_argument("--verbose", "-v", action="store_true", help="Show verbose output including full prompts")
     exec_parser.add_argument("--info", action="store_true", help="Show startup banner and PRD info only (no execution)")
-    
+
     # status command
-    status_parser = subparsers.add_parser("status", help="Show Ralph status")
-    status_parser.add_argument("--prd", type=Path, help="Path to prd.json file")
+    subparsers.add_parser("status", help="Show Ralph status")
 
     # select command (interactive story selection)
     select_parser = subparsers.add_parser("select", help="Interactive story selection menu")
-    select_parser.add_argument("--prd", type=Path, help="Path to prd.json file")
-    select_parser.add_argument("--config", type=Path, help="Path to config file")
     select_parser.add_argument("--verbose", "-v", action="store_true", help="Show verbose output")
 
-    # init command
-    init_parser = subparsers.add_parser("init", help="Initialize Ralph configuration")
-    init_parser.add_argument("--detect-config", action="store_true", help="Auto-detect project configuration")
-    
+    # validate command
+    validate_parser = subparsers.add_parser("validate", help="Validate PRD JSON structure")
+    validate_parser.add_argument("--strict", action="store_true", help="Treat warnings as errors")
+
     args = parser.parse_args()
 
     if not args.command:
         show_ralph_banner()
         parser.print_help()
         return
-    
-    # Note: API key is optional - Anthropic SDK will use Claude Code authentication if available
-    # Load config
-    config_path = args.config if hasattr(args, 'config') and args.config else None
-    config = RalphConfig(config_path)
+
+    # Resolve project directory
+    project_dir = Path(args.project_dir).resolve()
+
+    # Check if this looks like a Ralph project (has .ralph/ or we're initializing)
+    if args.command != "init" and not (project_dir / ".ralph").exists():
+        print(f"❌ No .ralph/ directory found in {project_dir}")
+        print(f"   Run 'ralph init {project_dir}' to initialize")
+        sys.exit(1)
+
+    # Load config from project directory
+    config = RalphConfig(project_dir=project_dir)
     
     if args.command == "process-prd":
-        parser = PRDParser(config)
-        parser.parse_prd(args.prd_file, args.output)
-    
-    elif args.command == "execute-plan":
+        prd_processor = PRDParser(config)
+        # Output to .ralph/prd.json by default
+        prd_processor.parse_prd(args.prd_file, config.prd_path)
+
+    elif args.command in ("execute-plan", "execute", "run"):
         verbose = args.verbose if hasattr(args, 'verbose') else False
         loop = RalphLoop(config, verbose=verbose)
         phase = args.phase if hasattr(args, 'phase') else None
         if args.info:
-            loop.show_info(args.prd, phase=phase)
+            loop.show_info(config.prd_path, phase=phase)
         else:
-            loop.execute(args.prd, args.max_iterations, phase=phase)
-    
+            max_iter = args.max_iterations if hasattr(args, 'max_iterations') else None
+            loop.execute(config.prd_path, max_iter, phase=phase)
+
     elif args.command == "status":
-        prd_path = args.prd or Path(config.get("paths.prdFile", "prd.json"))
+        prd_path = config.prd_path
         if prd_path.exists():
             with open(prd_path, 'r') as f:
                 prd = json.load(f)
             completed = sum(1 for s in prd["userStories"] if s.get("status") == "complete")
             total = len(prd["userStories"])
-            print(f"Status: {completed}/{total} stories completed")
+            in_progress = sum(1 for s in prd["userStories"] if s.get("status") == "in_progress")
+            print(f"📋 Project: {project_dir.name}")
+            print(f"   PRD: {prd_path}")
+            print(f"   Status: {completed}/{total} stories completed")
+            if in_progress:
+                print(f"   In Progress: {in_progress} stories")
         else:
-            print("No prd.json found")
+            print(f"❌ No PRD found at {prd_path}")
+            print(f"   Run 'ralph {project_dir} process-prd <prd_file>' first")
 
     elif args.command == "select":
-        prd_path = args.prd or Path(config.get("paths.prdFile", "prd.json"))
+        prd_path = config.prd_path
         if not prd_path.exists():
             if HAS_RICH:
                 console.print("[red]❌ No prd.json found. Run 'ralph process-prd' first.[/red]")
@@ -2136,7 +2716,35 @@ def main():
 
     elif args.command == "init":
         config.save()
-        print(f"✅ Configuration saved to {config.config_path}")
+        print(f"✅ Initialized Ralph in {project_dir}")
+        print(f"   Config: {config.config_path}")
+        print(f"   PRD:    {config.prd_path}")
+        print(f"\n   Next: Run 'ralph {project_dir} process-prd <prd_file>'")
+
+    elif args.command == "validate":
+        prd_path = config.prd_path
+        if not prd_path.exists():
+            print(f"❌ PRD file not found: {prd_path}")
+            sys.exit(1)
+
+        with open(prd_path, 'r') as f:
+            try:
+                prd = json.load(f)
+            except json.JSONDecodeError as e:
+                print(f"❌ Invalid JSON: {e}")
+                sys.exit(1)
+
+        result = validate_prd(prd)
+        print(f"\n📋 Validating: {prd_path}\n")
+        print(result.format())
+
+        if args.strict and result.warnings:
+            print("\n⚠️  Strict mode: warnings treated as errors")
+            sys.exit(1)
+        elif not result.valid:
+            sys.exit(1)
+        else:
+            print(f"\n✅ {len(prd.get('userStories', []))} stories validated")
 
 
 if __name__ == "__main__":

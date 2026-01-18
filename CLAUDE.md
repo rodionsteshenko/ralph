@@ -13,24 +13,39 @@ Ralph is an autonomous AI agent loop that executes user stories from PRDs (Produ
 ### Installation & Setup
 ```bash
 uv pip install -r requirements.txt  # Install dependencies using UV
-python ralph.py init                # Initialize .ralph/config.json
 ```
 
 ### Primary Workflow
+Ralph operates on a project directory containing a `.ralph/` folder:
+
 ```bash
-# 1. Process PRD document to structured JSON
-# For small PRDs (<10 stories):
-python ralph.py process-prd tasks/prd-feature.txt [--output prd.json]
+# 1. Initialize Ralph in a project directory
+python ralph.py myproject/ init
+
+# 2. Process PRD document (saves to myproject/.ralph/prd.json)
+python ralph.py myproject/ process-prd tasks/prd-feature.txt
 
 # For large PRDs (10+ stories) - uses tool-based batching:
-python prd_builder.py tasks/prd-feature.txt [--output prd.json]
+python prd_builder.py tasks/prd-feature.txt --output myproject/.ralph/prd.json
 
-# 2. Execute the plan
-python ralph.py execute-plan [--max-iterations N] [--prd prd.json]
+# 3. Execute the plan
+python ralph.py myproject/ execute              # or execute-plan, run
+python ralph.py myproject/ execute --phase 1    # Execute specific phase
 
-# 3. Check status / select stories
-python ralph.py status [--prd prd.json]
-python ralph.py select [--prd prd.json]   # Interactive story selection menu
+# 4. Check status / select stories
+python ralph.py myproject/ status
+python ralph.py myproject/ select               # Interactive story selection
+
+# 5. Validate PRD
+python ralph.py myproject/ validate
+python ralph.py myproject/ validate --strict    # Treat warnings as errors
+```
+
+**Note**: If you're already in the project directory, you can omit the path:
+```bash
+cd myproject/
+python ../ralph.py init
+python ../ralph.py execute
 ```
 
 ### Development
@@ -219,6 +234,25 @@ python prd_tools.py in-progress <prd_file>                 # Show all in-progres
 python prd_tools.py clear-stale <prd_file> [--max-age-hours N]  # Clear stale in_progress status
 ```
 
+**PRD Validation:**
+```bash
+python ralph.py validate prd.json       # Validate PRD structure
+python ralph.py validate --strict       # Treat warnings as errors
+```
+
+**Design Document Reference:**
+Add a `designDoc` field to PRD to give the agent architectural context:
+```json
+{
+  "project": "Ralph v2",
+  "designDoc": {
+    "path": "docs/RALPH_V2_DESIGN.md"
+  },
+  ...
+}
+```
+The agent will be told to reference this document for architecture decisions.
+
 **PRD Viewer:**
 ```bash
 python prd_viewer.py prd.json           # Watch mode (auto-refresh)
@@ -283,22 +317,40 @@ Default `.ralph/config.json`:
 
 ## File Organization
 
+### Ralph Tool Directory
 ```
-ralph/
-├── ralph.py              # Main implementation (~2100 lines)
-├── prd_builder.py        # Tool-based PRD builder for large PRDs
-├── prd_tools.py          # PRD manipulation utilities
-├── prd_viewer.py         # Terminal PRD progress viewer
-├── pyproject.toml        # Python project metadata (uses UV)
-├── requirements.txt      # Runtime dependencies
-├── prd.json              # Generated PRD (gitignored)
-├── progress.txt          # Append-only progress log (gitignored)
-├── .ralph/
-│   ├── config.json       # Configuration (customize per project)
-│   └── skills/           # Project-specific skills (future)
-├── agent/                # Design documents (reference, not code)
-└── archive/              # Archived runs
+ralph/                        # The Ralph tool itself
+├── ralph.py                  # Main implementation
+├── claude-stream.py          # Pretty-print Claude streaming output
+├── prd_builder.py            # Tool-based PRD builder for large PRDs
+├── prd_tools.py              # PRD manipulation utilities
+├── prd_viewer.py             # Terminal PRD progress viewer
+├── pyproject.toml            # Python project metadata (uses UV)
+├── requirements.txt          # Runtime dependencies
+└── docs/                     # Ralph documentation
 ```
+
+### Target Project Directory (Centralized .ralph/)
+When Ralph runs on a project, it uses this structure:
+```
+myproject/                    # Your project directory
+├── .ralph/                   # All Ralph state lives here
+│   ├── config.json           # Project configuration
+│   ├── prd.json              # The PRD (user stories)
+│   ├── progress.md           # Progress tracking
+│   ├── guardrails.md         # Learned failures to prevent mistakes
+│   ├── logs/                 # Detailed iteration logs
+│   └── skills/               # Ralph-specific skills
+├── .claude/
+│   └── skills/               # Claude Code skills (created by agent)
+│       ├── build/SKILL.md    # How to build the project
+│       ├── test/SKILL.md     # How to run tests
+│       └── lint/SKILL.md     # How to lint
+├── AGENTS.md                 # Codebase patterns (updated by agent)
+└── src/                      # Your actual project code
+```
+
+**Key principle**: Point Ralph to the project directory (`ralph myproject/ execute`), and all Ralph state is contained in `.ralph/`. The agent creates skills in `.claude/skills/` that persist across sessions.
 
 ## Dependencies
 
@@ -308,6 +360,81 @@ Uses **UV** package manager for fast Python installations:
 - External: Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
 
 Add dependencies to `requirements.txt` or `pyproject.toml` then run `uv pip install -r requirements.txt`.
+
+## Guardrails (Learning from Failures)
+
+Ralph automatically learns from repeated failures. When a story fails 2+ times consecutively, Ralph:
+
+1. Extracts the error pattern from the failure log
+2. Appends it to `.ralph/guardrails.md`
+3. Includes guardrails content in future prompts
+
+**Example `.ralph/guardrails.md`:**
+```markdown
+# Guardrails
+
+Learnings from failures to prevent repeated mistakes.
+
+---
+
+## US-029: Task Management Backend
+**Added**: 2026-01-17 10:30 (after 2 failures)
+
+**Issue**:
+```
+TypeError: Cannot read property 'id' of undefined
+```
+
+**Rule**: Always check for null/undefined before accessing nested properties.
+
+---
+```
+
+The agent sees these guardrails at the start of each iteration and is instructed to follow them.
+
+## Skills Creation (Continuous Improvement)
+
+Ralph instructs the agent to create Claude Code skills in `.claude/skills/` as it works. This makes future work faster and more reliable.
+
+**Skills the agent should create:**
+- `build` - How to build the project
+- `test` - How to run tests (unit, E2E, specific modules)
+- `lint` - How to lint and auto-fix
+- `deploy` - Deployment steps if applicable
+- Project-specific workflows
+
+**Skill structure** (`.claude/skills/<skill-name>/SKILL.md`):
+```yaml
+---
+name: test
+description: Run tests for this project. Use when asked to test, verify, or check code works.
+---
+
+# Testing
+
+## Quick Start
+\`\`\`bash
+pytest tests/           # All tests
+pytest tests/ -m e2e    # E2E tests only
+\`\`\`
+
+## Test Categories
+- Unit tests: `pytest tests/ -m "not e2e"`
+- E2E tests: `API_KEY=xxx pytest -m e2e`
+```
+
+Skills are loaded on-demand by Claude Code, making the agent more effective over time.
+
+## Updating AGENTS.md
+
+The agent is also instructed to update `AGENTS.md` when it discovers:
+- Project structure patterns
+- Naming conventions
+- Architecture decisions
+- Common gotchas or pitfalls
+- Testing patterns
+
+This helps future agents (and humans) work more effectively in the codebase.
 
 ## Adding Quality Gates
 
