@@ -195,6 +195,31 @@ Expected JSON format in `prd.json`:
 - E2E tests catch real-world issues: wrong model names, auth failures, API changes
 - Ralph will now enforce E2E tests for any feature that uses external services
 
+**Story status values:**
+- `undefined/null` - Not started
+- `"in_progress"` - Currently being worked on (has `startedAt` timestamp)
+- `"completed"` - Finished successfully (`passes=true`)
+- `"skipped"` - Intentionally closed without completing (`passes=false`, has `skippedAt` timestamp)
+
+**Phase closure logic:**
+- A phase is "closed" when all stories have either `passes=true` OR `status="skipped"`
+- Closed phases show `[CLOSED]` badge in prd_viewer.py
+
+**PRD Management Tools:**
+```bash
+python prd_tools.py close-phase <prd_file> <phase_number>  # Mark all incomplete stories in phase as skipped
+python prd_tools.py skip-story <prd_file> <story_id>       # Mark a single story as skipped
+python prd_tools.py start-story <prd_file> <story_id>      # Mark story as in_progress
+python prd_tools.py in-progress <prd_file>                 # Show all in-progress stories
+python prd_tools.py clear-stale <prd_file> [--max-age-hours N]  # Clear stale in_progress status
+```
+
+**PRD Viewer:**
+```bash
+python prd_viewer.py prd.json           # Watch mode (auto-refresh)
+python prd_viewer.py prd.json --once    # Display once and exit
+```
+
 ## Configuration Structure
 
 Default `.ralph/config.json`:
