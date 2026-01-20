@@ -1,6 +1,8 @@
 """Utility functions."""
 
+import json
 from pathlib import Path
+from typing import Any, Optional
 
 # Try to import ASCII art display (optional dependency)
 try:
@@ -9,6 +11,18 @@ try:
     HAS_ASCII_ART = True
 except ImportError:
     HAS_ASCII_ART = False
+
+
+def load_prd(path: Path) -> Optional[dict[str, Any]]:
+    """Load PRD from JSON file."""
+    try:
+        with open(path) as f:
+            data: dict[str, Any] = json.load(f)
+            return data
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError:
+        return None
 
 
 def show_ralph_banner() -> bool:

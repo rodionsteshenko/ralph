@@ -395,3 +395,26 @@ def list_stories_command(args: argparse.Namespace) -> None:
     for story in stories:
         status_icon = "✅" if story.get("status") == "complete" else "⏳"
         print(f"{status_icon} {story['id']}: {story['title']} (Phase {story.get('phase', '?')})")
+
+
+def view_command(args: argparse.Namespace) -> None:
+    """View PRD progress with pretty formatting."""
+    from ralph.tools import resolve_prd_path
+    from ralph.viewer import run_viewer
+
+    try:
+        prd_path = resolve_prd_path(Path.cwd())
+    except FileNotFoundError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
+
+    try:
+        run_viewer(
+            prd_path,
+            watch=not args.once,
+            refresh_interval=args.interval,
+            expand_closed=args.expand,
+        )
+    except Exception as e:
+        print(f"❌ Failed to run viewer: {e}")
+        sys.exit(1)

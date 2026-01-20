@@ -233,6 +233,30 @@ Examples:
         help="Filter by status",
     )
 
+    # View command
+    view_parser = subparsers.add_parser(
+        "view",
+        help="View PRD progress with pretty formatting",
+    )
+    view_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Display once and exit (no watching)",
+    )
+    view_parser.add_argument(
+        "--expand",
+        "-e",
+        action="store_true",
+        help="Expand closed phases (show all stories)",
+    )
+    view_parser.add_argument(
+        "-i",
+        "--interval",
+        type=float,
+        default=1.0,
+        help="Refresh interval in seconds (default: 1.0)",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -257,6 +281,7 @@ Examples:
         "in-progress": commands.in_progress_command,
         "clear-stale": commands.clear_stale_command,
         "list-stories": commands.list_stories_command,
+        "view": commands.view_command,
     }
 
     handler = command_map.get(args.command)
