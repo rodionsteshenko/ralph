@@ -257,3 +257,117 @@ All files well under 500-line limit:
   - `loop.py` - Main execution loop
   - `utils.py` - Utility functions
 - Tests provide good examples of how the CLI should behave
+## Iteration 1 - US-003 - 2026-01-19T21:30:00
+
+### Implemented
+- Created comprehensive project auto-detection system in `src/ralph/detect.py` (320 lines)
+- Implemented `ProjectType` class with constants for: NODE, PYTHON, RUST, GO, UNKNOWN
+- Implemented `ProjectDetector` class with auto-detection capabilities:
+  - **Project type detection** from files (package.json, pyproject.toml, Cargo.toml, go.mod, etc.)
+  - **Package manager detection** (npm/pnpm/yarn, uv/pip, cargo, go)
+  - **Typecheck command detection** (tsc/mypy/cargo check/go vet)
+  - **Lint command detection** (eslint/ruff/pylint/clippy/golangci-lint)
+  - **Test command detection** (npm test/pytest/cargo test/go test)
+- Implemented convenience function `detect_project_config()` for easy usage
+- Detection features:
+  - **Node.js**: Detects TypeScript (tsc, tsconfig.json), ESLint, package manager from lock files
+  - **Python**: Detects mypy (mypy.ini, pyproject.toml), ruff/pylint, pytest, uv/pip
+  - **Rust**: Detects cargo check, clippy, cargo test
+  - **Go**: Detects go vet, golangci-lint, go test
+  - **Fallback**: Returns None for missing commands (sensible defaults)
+- Created comprehensive test suite with 43 tests (453 lines):
+  - **Unit tests**: 41 tests with mocked file systems using tempfile
+  - **E2E tests**: 2 tests verifying real Ralph project detection
+  - Test coverage across all project types and detection methods
+- All acceptance criteria met:
+  - ✅ src/ralph/detect.py detects project type from files
+  - ✅ Auto-detects typecheck command (tsc, mypy, cargo check, etc.)
+  - ✅ Auto-detects lint command (eslint, ruff, clippy, etc.)
+  - ✅ Auto-detects test command (npm test, pytest, cargo test, etc.)
+  - ✅ Returns sensible defaults (None) if detection fails
+  - ✅ No config.json file required
+  - ✅ Typecheck passes
+
+### Tests
+- **Unit tests**: `tests/test_detect.py` (453 lines) - 41 tests with mocks
+  - TestProjectTypeDetection: 8 tests (Node, Python, Rust, Go, unknown)
+  - TestPackageManagerDetection: 7 tests (npm/pnpm/yarn, uv/pip, cargo, go)
+  - TestTypecheckCommandDetection: 8 tests (tsc/mypy/cargo/go)
+  - TestLintCommandDetection: 8 tests (eslint/ruff/pylint/clippy/golangci-lint)
+  - TestTestCommandDetection: 6 tests (npm test/pytest/cargo/go)
+  - TestDetectAll: 3 tests (full configuration detection)
+  - TestConvenienceFunction: 1 test (convenience function)
+- **E2E tests**: `tests/test_detect.py::TestRealProjectDetection` - 2 tests
+  - test_detect_ralph_project_config: Verifies Ralph project is detected as Python with mypy/ruff/pytest
+  - test_convenience_function_with_current_directory: Verifies convenience function works
+- **Test command**: `pytest tests/test_detect.py -v`
+- **Test results**: 43/43 tests passing (all tests pass in 0.04s)
+- **E2E test command**: `pytest tests/test_detect.py::TestRealProjectDetection -v`
+- **Coverage**: 100% of acceptance criteria covered
+
+### Quality Checks
+- ✅ Typecheck: `mypy src/` - Success: no issues found in 7 source files
+- ✅ Lint: `ruff check src/` - All checks passed
+- ✅ All tests pass: 43/43 detection tests + 64/64 total project tests
+- ✅ File sizes: All files under 500 lines
+- ✅ E2E tests: Real project detection works correctly
+
+### File Sizes
+All files well under 500-line limit:
+- `src/ralph/detect.py`: 320 lines
+- `tests/test_detect.py`: 453 lines
+- Total: 773 lines for complete detection system with comprehensive tests
+
+### Issues Encountered
+- **Import order linting**: Initially had imports in wrong order (List, Tuple unused)
+  - Fixed by organizing imports correctly (json, pathlib, typing)
+  - Removed unused imports (List, Tuple)
+
+### Decisions
+- **Class-based design**: Used `ProjectDetector` class for encapsulation and testability
+- **Constants class**: Created `ProjectType` class for type constants (cleaner than strings)
+- **Comprehensive detection**: Checks multiple sources for each tool:
+  - Package.json scripts
+  - Config files (.eslintrc, mypy.ini, etc.)
+  - pyproject.toml tool sections
+  - Dependencies in package.json
+- **Smart defaults**: 
+  - Prefers uv over pip for Python projects with pyproject.toml
+  - Detects package manager from lock files (pnpm-lock.yaml, yarn.lock)
+  - Returns None for missing commands (caller can decide defaults)
+- **Node.js TypeScript detection**: Multi-layer approach:
+  1. Check for explicit "typecheck" script
+  2. Check for "tsc" script
+  3. Check for typescript dependency + tsconfig.json
+- **Python tool detection**: Checks both dedicated config files and pyproject.toml
+- **Error handling**: Uses try/except for JSON parsing to handle malformed files
+- **E2E tests**: Marked with `@pytest.mark.e2e` for real integration testing
+
+### Notes for Next Iteration
+- Detection system is fully functional and tested
+- Can be used by other modules (cli.py, gates.py) for auto-configuration
+- Returns dictionary with all detected configuration:
+  ```python
+  {
+    "project_type": "python",
+    "package_manager": "uv",
+    "typecheck": "mypy .",
+    "lint": "ruff check .",
+    "test": "pytest"
+  }
+  ```
+- Example usage for future modules:
+  ```python
+  from ralph.detect import detect_project_config
+  config = detect_project_config()
+  if config["typecheck"]:
+      subprocess.run(config["typecheck"], shell=True)
+  ```
+- Next stories should integrate detection into:
+  - `init` command: Auto-detect project and create .ralph/ with detected commands
+  - `gates.py`: Use detected commands for quality gates
+  - `cli.py`: Add CLI flags to override auto-detected commands
+- Consider adding more project types in future:
+  - Java (mvn, gradle)
+  - Ruby (bundler, rubocop)
+  - C/C++ (make, cmake, clang-tidy)
