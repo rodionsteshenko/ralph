@@ -151,3 +151,109 @@ All files remain well under 500-line limit:
   - `anthropic` for Claude API
   - `rich` for CLI formatting
   - Other dependencies as required by implementation
+
+## Iteration 1 - US-002 - 2026-01-19T21:15:00
+
+### Implemented
+- Updated `pyproject.toml` with complete package metadata:
+  - **Authors**: Added Rodion Steshenko <rsteshenko@gmail.com>
+  - **License**: MIT
+  - **Keywords**: ai, agent, prd, automation, claude
+  - **Classifiers**: Development status, license, Python versions (3.9-3.12), topic
+  - **Dependencies**: anthropic>=0.34.0, Pillow>=10.0.0, rich>=13.0.0
+  - **Dev Dependencies**: pytest>=7.0.0, mypy>=1.0.0, ruff>=0.1.0 (as optional-dependencies)
+  - **URLs**: Homepage, Repository, Issues (GitHub)
+  - **Package discovery**: Added [tool.setuptools] with packages and package-dir for src layout
+- Implemented `src/ralph/cli.py` with complete CLI structure:
+  - `main()` function as entry point
+  - Argument parser with help and version flags
+  - All subcommands: init, process-prd, execute (with aliases), status, select, validate
+  - Command-specific arguments (e.g., --max-iterations, --phase, --strict)
+  - Placeholder implementation (returns success with message)
+  - Full type hints (NoReturn for main)
+- Created comprehensive test suite:
+  - **CLI tests** (`tests/test_cli.py`): 10 tests covering all commands
+  - **Metadata tests** (`tests/test_package_metadata.py`): 6 tests verifying package info
+  - Tests verify: help, version, commands, entry points, metadata, imports
+- All acceptance criteria met:
+  - ✅ pyproject.toml has [project.scripts] with 'ralph' entry point
+  - ✅ pyproject.toml has proper package discovery ([tool.setuptools])
+  - ✅ Package metadata complete (author, license, readme, classifiers)
+  - ✅ Running 'pip install -e .' succeeds (verified install/uninstall/reinstall)
+  - ✅ Typecheck passes (mypy src/ralph/)
+
+### Tests
+- **Unit tests**: `tests/test_cli.py` (116 lines) - 10 tests
+  - test_cli_help: Verifies --help works
+  - test_cli_version: Verifies --version shows 0.1.0
+  - test_cli_no_command: Verifies help shown when no command
+  - test_cli_init_command: Verifies init command exists
+  - test_cli_status_command: Verifies status command exists
+  - test_cli_execute_command: Verifies execute command exists
+  - test_cli_execute_alias_run: Verifies 'run' alias works
+  - test_cli_process_prd_command: Verifies process-prd requires argument
+  - test_cli_validate_command: Verifies validate command exists
+  - test_cli_validate_strict_flag: Verifies --strict flag works
+- **Integration tests**: `tests/test_package_metadata.py` (74 lines) - 6 tests
+  - test_package_version: Verifies __version__ accessible
+  - test_package_metadata: Verifies all metadata correct
+  - test_package_dependencies: Verifies runtime dependencies present
+  - test_package_entry_points: Verifies ralph entry point configured
+  - test_ralph_command_available: Verifies ralph in PATH
+  - test_ralph_imports: Verifies all modules importable
+- **Test command**: `pytest tests/ -v`
+- **Test results**: 21/21 tests passing (all existing + new tests)
+
+### Quality Checks
+- ✅ Typecheck: `mypy src/ralph/` - Success: no issues found in 7 source files
+- ✅ All tests pass: 21/21 tests passing
+- ✅ Editable install: Successfully tested install/uninstall/reinstall
+- ✅ Package metadata: All fields verified via pip show and importlib.metadata
+- ✅ CLI functional: All commands and flags working
+
+### File Sizes
+All files well under 500-line limit:
+- `pyproject.toml`: 86 lines
+- `src/ralph/cli.py`: 102 lines
+- `src/ralph/__init__.py`: 3 lines
+- `tests/test_cli.py`: 116 lines
+- `tests/test_package_metadata.py`: 74 lines
+- Other module files: 1 line each (docstring only)
+
+### Issues Encountered
+- **CLI module was empty**: Needed to implement main() function for entry point
+- **Dependency test failure**: Initially failed because test was checking "anthropic" against "anthropic>=0.34.0"
+  - Fixed by parsing dependency names before version specifiers
+- **pip command not found**: Initial environment had pip3 instead of pip
+  - Resolved by detecting and using pip3
+
+### Decisions
+- **Placeholder CLI implementation**: Implemented full command structure with placeholders
+  - All commands return success (exit 0) with "not yet implemented" message
+  - This allows package to install and CLI to work immediately
+  - Future stories will add actual implementation for each command
+- **MIT License**: Standard permissive license for open source
+- **Python 3.9+**: Modern Python with good library support
+- **Rich dependency**: Added for future CLI formatting (already in original ralph.py)
+- **Pillow dependency**: Added (was in original ralph.py requirements)
+- **Optional dev dependencies**: Separated test/dev tools from runtime dependencies
+- **GitHub URLs**: Used placeholder URLs (can be updated when repo is public)
+
+### Notes for Next Iteration
+- CLI structure is complete with all commands defined
+- Package is fully installable and working
+- All commands currently show "not yet implemented" placeholder
+- Future stories should implement actual command logic:
+  - US-003: Implement `init` command (project detection, .ralph/ creation)
+  - US-004: Implement `process-prd` command (PRD parsing)
+  - US-005: Implement `execute` command (main loop)
+  - US-006: Implement `status` command (show PRD progress)
+  - US-007: Implement `validate` command (PRD validation)
+  - US-008: Implement `select` command (interactive story selection)
+- Module files still mostly empty (ready for implementation):
+  - `detect.py` - Project type detection
+  - `prd.py` - PRD parsing and management
+  - `gates.py` - Quality gates execution
+  - `loop.py` - Main execution loop
+  - `utils.py` - Utility functions
+- Tests provide good examples of how the CLI should behave
