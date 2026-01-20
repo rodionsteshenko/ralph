@@ -64,7 +64,7 @@ class RalphLoop:
                 pass
         return ""
 
-    def _update_guardrails(self, story: Dict, error_summary: str, failure_count: int):
+    def _update_guardrails(self, story: Dict, error_summary: str, failure_count: int) -> None:
         """Update guardrails file with a new learning after repeated failures.
 
         Only updates after 2+ consecutive failures on the same story.
@@ -91,7 +91,7 @@ class RalphLoop:
             f.write("**Rule**: _[Agent should analyze and fill this in on next iteration]_\n\n")
             f.write("---\n\n")
 
-        if HAS_RICH:
+        if HAS_RICH and console:
             console.print(f"[yellow]📝 Updated guardrails with learning from {story['id']}[/yellow]")
         else:
             print(f"📝 Updated guardrails with learning from {story['id']}")
@@ -210,7 +210,7 @@ End with a "What's Next" section if there are remaining stories."""
             print(f"   ⚠️  Could not generate feature summary: {e}")
             return ""
 
-    def _print_session_summary(self, prd: Dict, iteration_count: int, _prd_path: Path):
+    def _print_session_summary(self, prd: Dict, iteration_count: int, _prd_path: Path) -> None:
         """Print comprehensive session summary at the end of execution."""
         session_duration = time.time() - self.session_start_time if self.session_start_time else 0
 
@@ -306,7 +306,7 @@ End with a "What's Next" section if there are remaining stories."""
 
         print("\n" + "="*80 + "\n")
 
-    def show_info(self, prd_path: Optional[Path] = None, phase: Optional[int] = None):
+    def show_info(self, prd_path: Optional[Path] = None, phase: Optional[int] = None) -> None:
         """Show startup banner and PRD info without executing anything."""
         from ralph.utils import show_ralph_banner
 
@@ -380,7 +380,7 @@ End with a "What's Next" section if there are remaining stories."""
         print(f"\n   💡 To execute: python ralph.py execute-plan" + (f" --phase {phase}" if phase else ""))
         print()
 
-    def execute(self, prd_path: Optional[Path] = None, max_iterations: Optional[int] = None, phase: Optional[int] = None):
+    def execute(self, prd_path: Optional[Path] = None, max_iterations: Optional[int] = None, phase: Optional[int] = None) -> None:
         """Execute Ralph loop until completion or max iterations.
 
         Args:
@@ -457,7 +457,7 @@ End with a "What's Next" section if there are remaining stories."""
             # Select next story
             story = self._select_next_story(remaining_stories, prd)
 
-            if HAS_RICH:
+            if HAS_RICH and console:
                 console.print("\n")
                 console.print(Panel(
                     f"[bold magenta]Iteration {iteration}[/bold magenta]\n\n"
@@ -738,7 +738,7 @@ Be specific about why this story makes sense given the current codebase state an
         logs_dir.mkdir(exist_ok=True)
         detail_log = logs_dir / f"story-{story['id']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
 
-        if HAS_RICH:
+        if HAS_RICH and console:
             console.print(Panel(
                 f"[bold cyan]Story {story['id']}: {story['title']}[/bold cyan]\n"
                 f"[dim]Iteration {iteration}[/dim]\n"
@@ -796,8 +796,9 @@ Be specific about why this story makes sense given the current codebase state an
                 agent_output_lines = []
                 timeout_seconds = self.config.get("ralph.iterationTimeout", 3600)
                 start_time = time.time()
-                
+
                 try:
+                    assert process.stdout is not None, "stdout should not be None"
                     for line in process.stdout:
                         print(line, end='', flush=True)  # Print immediately
                         agent_output_lines.append(line)
@@ -845,7 +846,7 @@ Be specific about why this story makes sense given the current codebase state an
 
             if return_code != 0:
                 error_msg = f"Claude Code exited with error code {return_code}"
-                if HAS_RICH:
+                if HAS_RICH and console:
                     console.print(Panel(
                         f"[bold red]{error_msg}[/bold red]\n"
                         f"[dim]Check log: {detail_log}[/dim]",
@@ -865,13 +866,13 @@ Be specific about why this story makes sense given the current codebase state an
 
             # Run quality gates (or skip if --no-gates)
             if self.skip_gates:
-                if HAS_RICH:
+                if HAS_RICH and console:
                     console.print("\n[bold yellow]⏭️  Skipping quality gates (--no-gates)[/bold yellow]")
                 else:
                     print("⏭️  Skipping quality gates (--no-gates)")
                 quality_result = {"status": "PASS", "skipped": True, "gates": {}}
             else:
-                if HAS_RICH:
+                if HAS_RICH and console:
                     console.print("\n[bold yellow]🔍 Running quality gates...[/bold yellow]")
                 else:
                     print("🔍 Running quality gates...")
@@ -899,7 +900,7 @@ Be specific about why this story makes sense given the current codebase state an
                     self._update_agents_md(story, agent_output)
 
                 # Show success summary
-                if HAS_RICH:
+                if HAS_RICH and console:
                     console.print("\n")
                     console.print(Panel(
                         f"[bold green]✓ Story {story['id']} completed successfully![/bold green]\n\n"
@@ -918,7 +919,7 @@ Be specific about why this story makes sense given the current codebase state an
                 self._log_failure(story, agent_output, quality_result, iteration)
 
                 # Show failure summary
-                if HAS_RICH:
+                if HAS_RICH and console:
                     console.print("\n")
                     console.print(Panel(
                         f"[bold red]✗ Story {story['id']} failed[/bold red]\n\n"
@@ -1529,7 +1530,7 @@ Begin implementation now."""
                 cwd=work_path
             )
 
-            if HAS_RICH:
+            if HAS_RICH and console:
                 console.print(Panel(
                     f"[bold green]✓ Changes committed[/bold green]\n\n"
                     f"[cyan]Branch:[/cyan] {branch_name}\n"
@@ -1547,7 +1548,7 @@ Begin implementation now."""
         except FileNotFoundError:
             print("   ⚠️  Git not found, skipping commit")
     
-    def _update_progress_log(self, story: Dict, agent_output: str, quality_result: Dict, iteration: int):
+    def _update_progress_log(self, story: Dict, agent_output: str, quality_result: Dict, iteration: int) -> None:
         """Update .ralph/progress.md with iteration results."""
         progress_file = self.config.progress_path
         
@@ -1571,7 +1572,7 @@ Begin implementation now."""
             f.write(f"\n**Agent Output**:\n```\n{agent_output[:500]}...\n```\n")
             f.write(f"\n---\n")
     
-    def _log_failure(self, story: Dict, agent_output: str, quality_result: Optional[Dict], iteration: int):
+    def _log_failure(self, story: Dict, agent_output: str, quality_result: Optional[Dict], iteration: int) -> None:
         """Log failure to .ralph/progress.md."""
         progress_file = self.config.progress_path
         
@@ -1591,7 +1592,7 @@ Begin implementation now."""
             f.write(f"\n**Agent Output**:\n```\n{agent_output[:500]}...\n```\n")
             f.write(f"\n---\n")
     
-    def _update_agents_md(self, _story: Dict, _agent_output: str):
+    def _update_agents_md(self, _story: Dict, _agent_output: str) -> None:
         """Update agents.md files with learnings."""
         # This is a simplified version - in practice, you'd parse agent_output
         # to extract learnings and update relevant agents.md files

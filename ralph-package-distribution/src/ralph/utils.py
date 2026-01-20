@@ -4,7 +4,7 @@ from pathlib import Path
 
 # Try to import ASCII art display (optional dependency)
 try:
-    from ascii_image import display_ascii_image
+    from ascii_image import display_ascii_image  # type: ignore[import-not-found]
 
     HAS_ASCII_ART = True
 except ImportError:
