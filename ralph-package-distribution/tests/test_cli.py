@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ralph.cli import (
+from ralph.commands import (
     execute_command,
     init_command,
     process_prd_command,
@@ -109,7 +109,7 @@ def test_process_prd_command_not_initialized(tmp_path: Path, monkeypatch: pytest
     assert exc_info.value.code == 1
 
 
-@patch('ralph.cli.PRDParser')
+@patch('ralph.commands.PRDParser')
 def test_process_prd_command_success(mock_parser: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
     """Test successful PRD processing."""
     monkeypatch.chdir(tmp_path)
