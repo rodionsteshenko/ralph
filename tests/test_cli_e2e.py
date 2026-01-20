@@ -224,11 +224,7 @@ def test_cli_e2e_execute_flags() -> None:
         "--max-iterations",
         "--phase",
         "--model",
-        "--typecheck-cmd",
-        "--lint-cmd",
-        "--test-cmd",
-        "--verbose",
-        "--no-gates"
+        "--verbose"
     ]
     for flag in required_flags:
         assert flag in result.stdout, f"Missing flag: {flag}"

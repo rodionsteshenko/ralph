@@ -71,7 +71,6 @@ def test_ralph_imports() -> None:
     import ralph
     import ralph.cli
     import ralph.detect
-    import ralph.gates
     import ralph.loop
     import ralph.prd
     import ralph.utils
@@ -80,7 +79,6 @@ def test_ralph_imports() -> None:
     assert ralph is not None
     assert ralph.cli is not None
     assert ralph.detect is not None
-    assert ralph.gates is not None
     assert ralph.loop is not None
     assert ralph.prd is not None
     assert ralph.utils is not None

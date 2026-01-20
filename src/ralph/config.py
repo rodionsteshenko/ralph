@@ -93,30 +93,6 @@ class RalphConfig:
         # Auto-detect project configuration
         detected = detect_project_config(self.project_dir)
 
-        # Build quality gates from detected commands
-        quality_gates: Dict[str, Any] = {}
-
-        if detected.get("typecheck"):
-            quality_gates["typecheck"] = {
-                "command": detected["typecheck"],
-                "required": True,
-                "timeout": 300
-            }
-
-        if detected.get("lint"):
-            quality_gates["lint"] = {
-                "command": detected["lint"],
-                "required": True,
-                "timeout": 120
-            }
-
-        if detected.get("test"):
-            quality_gates["test"] = {
-                "command": detected["test"],
-                "required": True,
-                "timeout": 600
-            }
-
         # Build commands dict
         commands: Dict[str, Any] = {}
         if detected.get("typecheck"):
@@ -134,7 +110,6 @@ class RalphConfig:
                 "packageManager": detected.get("package_manager", "unknown")
             },
             "commands": commands,
-            "qualityGates": quality_gates,
             "git": {
                 "baseBranch": "main",
                 "commitMessageFormat": "feat: {story_id} - {story_title}",

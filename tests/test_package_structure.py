@@ -35,7 +35,7 @@ def test_version_defined() -> None:
 
 def test_module_files_exist() -> None:
     """Verify all required module files exist."""
-    expected_modules = ["cli.py", "detect.py", "prd.py", "gates.py", "loop.py", "utils.py"]
+    expected_modules = ["cli.py", "detect.py", "prd.py", "loop.py", "utils.py"]
     src_ralph = Path("src/ralph")
 
     for module in expected_modules:
@@ -58,7 +58,6 @@ def test_modules_are_importable() -> None:
         import ralph.cli
         import ralph.detect
         import ralph.prd
-        import ralph.gates
         import ralph.loop
         import ralph.utils
 
@@ -66,7 +65,6 @@ def test_modules_are_importable() -> None:
         assert hasattr(ralph.cli, "__file__")
         assert hasattr(ralph.detect, "__file__")
         assert hasattr(ralph.prd, "__file__")
-        assert hasattr(ralph.gates, "__file__")
         assert hasattr(ralph.loop, "__file__")
         assert hasattr(ralph.utils, "__file__")
     finally:

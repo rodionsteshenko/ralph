@@ -1,6 +1,6 @@
 # Ralph
 
-Autonomous AI agent loop for executing PRDs (Product Requirement Documents). Ralph uses Claude AI to implement user stories iteratively, running quality gates after each iteration to ensure code quality.
+Autonomous AI agent loop for executing PRDs (Product Requirement Documents). Ralph uses Claude AI to implement user stories iteratively, auto-committing on completion.
 
 ## Installation
 
@@ -180,9 +180,6 @@ ralph execute --model claude-opus-4-5-20251101
 
 # Show verbose output
 ralph execute --verbose
-
-# Skip quality gates (for debugging)
-ralph execute --no-gates
 ```
 
 **Aliases:** `execute-plan`, `run`
@@ -323,34 +320,13 @@ Ralph detects project type based on files in your directory:
 Override auto-detected values with CLI flags:
 
 ```bash
-# Override quality gate commands
-ralph execute --typecheck-cmd "tsc --noEmit"
-ralph execute --lint-cmd "eslint src/"
-ralph execute --test-cmd "jest --coverage"
-
 # Override Claude model
 ralph execute --model claude-opus-4-5-20251101
 
 # Combine multiple overrides
 ralph execute \
-  --typecheck-cmd "mypy src/" \
-  --test-cmd "pytest -v" \
+  --model claude-opus-4-5-20251101 \
   --max-iterations 5
-```
-
-### Quality Gates
-
-Ralph runs quality gates after each story implementation:
-
-1. **Typecheck** - Ensures type safety
-2. **Lint** - Checks code style and quality
-3. **Test** - Runs test suite
-
-All gates must pass before Ralph commits changes.
-
-**Skip gates during debugging:**
-```bash
-ralph execute --no-gates
 ```
 
 ## PRD Structure
@@ -417,7 +393,6 @@ src/ralph/
 ├── commands.py      # Command implementations
 ├── detect.py        # Project type detection
 ├── prd.py           # PRD parsing and management
-├── gates.py         # Quality gates execution
 ├── loop.py          # Main execution loop
 ├── builder.py       # Incremental PRD builder
 ├── tools.py         # PRD manipulation tools

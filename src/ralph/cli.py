@@ -114,29 +114,9 @@ Examples:
         help="Claude model to use (overrides auto-detected value)",
     )
     exec_parser.add_argument(
-        "--typecheck-cmd",
-        type=str,
-        help="Typecheck command (overrides auto-detected value)",
-    )
-    exec_parser.add_argument(
-        "--lint-cmd",
-        type=str,
-        help="Lint command (overrides auto-detected value)",
-    )
-    exec_parser.add_argument(
-        "--test-cmd",
-        type=str,
-        help="Test command (overrides auto-detected value)",
-    )
-    exec_parser.add_argument(
         "--verbose",
         action="store_true",
         help="Show verbose output",
-    )
-    exec_parser.add_argument(
-        "--no-gates",
-        action="store_true",
-        help="Skip quality gates (for debugging)",
     )
 
     # Status command

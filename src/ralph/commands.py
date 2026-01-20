@@ -97,17 +97,8 @@ def execute_command(args: argparse.Namespace) -> None:
     if args.model:
         config.set("claude.model", args.model)
 
-    if args.typecheck_cmd:
-        config.set("commands.typecheck", args.typecheck_cmd)
-
-    if args.lint_cmd:
-        config.set("commands.lint", args.lint_cmd)
-
-    if args.test_cmd:
-        config.set("commands.test", args.test_cmd)
-
     # Create loop and execute
-    loop = RalphLoop(config=config, verbose=args.verbose, skip_gates=args.no_gates)
+    loop = RalphLoop(config=config, verbose=args.verbose)
 
     try:
         loop.execute(max_iterations=args.max_iterations, phase=args.phase)

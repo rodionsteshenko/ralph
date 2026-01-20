@@ -4,15 +4,14 @@ This document provides patterns, conventions, and guidance for AI agents working
 
 ## Project Overview
 
-Ralph is an autonomous AI agent loop that executes user stories from a PRD (Product Requirement Document). It uses Claude API to implement features iteratively, running quality gates after each iteration to ensure code quality.
+Ralph is an autonomous AI agent loop that executes user stories from a PRD (Product Requirement Document). It uses Claude AI to implement features iteratively, auto-committing on completion.
 
 ### Core Concept
 
 1. **PRD Processing**: Convert PRD documents to structured JSON (`prd.json`)
-2. **Autonomous Loop**: Execute stories one by one using Claude API
-3. **Quality Gates**: Run typecheck, lint, and tests statically (outside agent control)
-4. **Git Integration**: Auto-commit when quality gates pass
-5. **Progress Tracking**: Log all iterations to `progress.txt`
+2. **Autonomous Loop**: Execute stories one by one using Claude Code CLI
+3. **Git Integration**: Auto-commit on successful completion
+4. **Progress Tracking**: Log all iterations to `progress.md`
 
 ## Architecture
 
@@ -36,14 +35,6 @@ Ralph is an autonomous AI agent loop that executes user stories from a PRD (Prod
   - `parse_prd(prd_path, output_path)` - Main parsing method
   - `_build_parser_prompt()` - Creates prompt for Claude
   - `_validate_prd_json()` - Ensures proper structure
-
-#### `QualityGates`
-- **Location**: `ralph.py` lines 286-361
-- **Purpose**: Runs quality checks statically (outside agent control)
-- **Pattern**: Executes shell commands via `subprocess.run()`
-- **Key Methods**:
-  - `run()` - Runs all configured quality gates
-  - `_run_gate()` - Executes a single gate with timeout
 
 #### `RalphLoop`
 - **Location**: `ralph.py` lines 363-717
@@ -84,18 +75,6 @@ if prd_path.exists():
 - Use try/except for external operations (API calls, subprocess, file I/O)
 - Log failures to `progress.txt` via `_log_failure()`
 - Don't crash the loop on individual story failures
-
-### Quality Gate Execution
-
-Quality gates run **statically** (outside agent control):
-
-```python
-quality_result = self.quality_gates.run()
-if quality_result["status"] == "PASS":
-    # Commit and mark story complete
-else:
-    # Log failure, agent can retry next iteration
-```
 
 ### Git Operations
 
@@ -153,13 +132,6 @@ ralph/
     "lint": "npm run lint",
     "test": "npm run test"
   },
-  "qualityGates": {
-    "typecheck": {
-      "command": "npm run typecheck",
-      "required": true,
-      "timeout": 300
-    }
-  },
   "ralph": {
     "maxIterations": 20,
     "maxFailures": 3
@@ -178,53 +150,11 @@ ralph/
 2. Access via `config.get("section.key", default)`
 3. Document in this file
 
-## Quality Gates
-
-### How They Work
-
-1. Agent completes implementation
-2. Quality gates run **statically** (Python subprocess)
-3. All gates must pass for commit
-4. If any fail, story marked failed, agent can retry
-
-### Adding a New Quality Gate
-
-1. Add to `config.json`:
-```json
-"qualityGates": {
-  "mygate": {
-    "command": "my-command",
-    "required": true,
-    "timeout": 120
-  }
-}
-```
-
-2. Gate will automatically run if `required: true`
-
-### Quality Gate Results
-
-```python
-{
-  "status": "PASS" | "FAIL",
-  "gates": {
-    "typecheck": {
-      "status": "PASS",
-      "duration": 12.3,
-      "output": "...",
-      "returnCode": 0
-    }
-  },
-  "totalDuration": 45.6,
-  "timestamp": "2024-01-01T12:00:00"
-}
-```
-
 ## Git Workflow
 
 ### Commit Pattern
 
-- Commits only happen when quality gates pass
+- Commits happen on successful story completion
 - Commit message format: `feat: {story_id} - {story_title}`
 - Configurable via `git.commitMessageFormat`
 - Uses `git add .` then `git commit -m "..."`
@@ -238,21 +168,20 @@ ralph/
 ## Story Execution Flow
 
 ```
-1. Load PRD → Find remaining stories (passes: false)
+1. Load PRD → Find remaining stories (status: incomplete)
 2. Select next story (priority + dependencies)
 3. Build context:
    - Story details
    - Recent progress (last 50 lines)
    - AGENTS.md content
    - Project config
-4. Call Claude API with prompt
-5. Run quality gates (static)
-6. If passing:
+4. Call Claude Code CLI with prompt
+5. On success:
    - Commit changes
-   - Update prd.json (passes: true)
-   - Log to progress.txt
-7. Check stop conditions
-8. Repeat or exit
+   - Update prd.json (status: complete)
+   - Log to progress.md
+6. Check stop conditions
+7. Repeat or exit
 ```
 
 ## Stop Conditions
@@ -445,9 +374,8 @@ result = subprocess.run(
 2. **Follow existing conventions** - Match code style
 3. **Keep stories small** - One iteration per story
 4. **Write verifiable acceptance criteria** - Objective tests
-5. **Run quality gates** - Don't skip typecheck/lint/tests
-6. **Commit atomic changes** - One story per commit
-7. **Update progress logs** - Document what was done
+5. **Commit atomic changes** - One story per commit
+6. **Update progress logs** - Document what was done
 
 ### Code Quality
 
@@ -466,7 +394,6 @@ result = subprocess.run(
 4. Implement incrementally
 5. Test as you go
 6. Ensure all acceptance criteria met
-7. Verify quality gates pass
 
 ## Extending Ralph
 
@@ -484,11 +411,6 @@ elif args.command == "new-command":
     # Implementation
 ```
 
-### Adding New Quality Gates
-
-1. Add to config (see Quality Gates section)
-2. Gate runs automatically if `required: true`
-
 ### Customizing Agent Prompts
 
 Modify `_build_agent_prompt()` in `RalphLoop` class to change how prompts are constructed.
@@ -500,11 +422,6 @@ Modify `_build_context()` to include additional context sources.
 ## Troubleshooting
 
 ### Common Issues
-
-**Quality gates failing**
-- Check commands in `config.json` match your project
-- Verify commands work when run manually
-- Check timeout values are sufficient
 
 **Stories too large**
 - Split stories in PRD
@@ -556,7 +473,6 @@ make verify    # Verify installation
 ## Notes for Future Agents
 
 - This codebase is designed to be extended
-- Quality gates are intentionally static (outside agent control)
 - Context is rebuilt each iteration for freshness
 - Progress logging helps track what's been done
 - AGENTS.md is included in agent context automatically

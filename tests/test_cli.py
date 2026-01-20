@@ -142,11 +142,7 @@ def test_execute_command_not_initialized(tmp_path: Path, monkeypatch: pytest.Mon
     args.max_iterations = None
     args.phase = None
     args.model = None
-    args.typecheck_cmd = None
-    args.lint_cmd = None
-    args.test_cmd = None
     args.verbose = False
-    args.no_gates = False
 
     with pytest.raises(SystemExit) as exc_info:
         execute_command(args)
@@ -163,11 +159,7 @@ def test_execute_command_no_prd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     args.max_iterations = None
     args.phase = None
     args.model = None
-    args.typecheck_cmd = None
-    args.lint_cmd = None
-    args.test_cmd = None
     args.verbose = False
-    args.no_gates = False
 
     with pytest.raises(SystemExit) as exc_info:
         execute_command(args)
@@ -200,20 +192,13 @@ def test_execute_command_with_overrides(mock_loop: MagicMock, mock_config: Magic
     args.max_iterations = 5
     args.phase = 1
     args.model = "claude-opus-4"
-    args.typecheck_cmd = "mypy ."
-    args.lint_cmd = "ruff check ."
-    args.test_cmd = "pytest"
     args.verbose = True
-    args.no_gates = True
 
     execute_command(args)
 
     # Check that config.set was called with overrides
     mock_config_instance.set.assert_any_call("ralph.maxIterations", 5)
     mock_config_instance.set.assert_any_call("claude.model", "claude-opus-4")
-    mock_config_instance.set.assert_any_call("commands.typecheck", "mypy .")
-    mock_config_instance.set.assert_any_call("commands.lint", "ruff check .")
-    mock_config_instance.set.assert_any_call("commands.test", "pytest")
 
     # Check that loop.execute was called
     mock_loop_instance.execute.assert_called_once_with(max_iterations=5, phase=1)
@@ -441,11 +426,7 @@ def test_cli_execute_command_with_flags() -> None:
     assert "--max-iterations" in result.stdout
     assert "--phase" in result.stdout
     assert "--model" in result.stdout
-    assert "--typecheck-cmd" in result.stdout
-    assert "--lint-cmd" in result.stdout
-    assert "--test-cmd" in result.stdout
     assert "--verbose" in result.stdout
-    assert "--no-gates" in result.stdout
 
 
 def test_cli_execute_alias_run() -> None:

@@ -1,10 +1,10 @@
 """Ralph execution loop.
 
-NOTE: This file is 1550+ lines and exceeds the recommended 500-line limit.
+NOTE: This file is large and exceeds the recommended 500-line limit.
 Future work should split this into:
 - story_selection.py (story selection logic)
 - context_builder.py (context and prompt building)
-- story_executor.py (execution and quality gates)
+- story_executor.py (execution)
 - session_reporter.py (reporting and summaries)
 """
 
@@ -33,20 +33,15 @@ if TYPE_CHECKING:
 class RalphLoop:
     """Main Ralph execution loop."""
 
-    def __init__(self, config: "RalphConfig", verbose: bool = False, skip_gates: bool = False):
+    def __init__(self, config: "RalphConfig", verbose: bool = False):
         """Initialize Ralph loop.
 
         Args:
             config: RalphConfig instance
             verbose: Show verbose output
-            skip_gates: Skip quality gates (--no-gates)
         """
-        from ralph.gates import create_quality_gates_from_config
-
         self.config = config
         self.verbose = verbose
-        self.skip_gates = skip_gates
-        self.quality_gates = create_quality_gates_from_config(config._config, config.project_dir)
         self.failure_count = 0
         self.last_story_id: Optional[str] = None
         self.session_start_time: Optional[float] = None
@@ -864,75 +859,34 @@ Be specific about why this story makes sense given the current codebase state an
                     self._log_failure(story, agent_output, None, iteration)
                 return False
 
-            # Run quality gates (or skip if --no-gates)
-            if self.skip_gates:
-                if HAS_RICH and console:
-                    console.print("\n[bold yellow]⏭️  Skipping quality gates (--no-gates)[/bold yellow]")
-                else:
-                    print("⏭️  Skipping quality gates (--no-gates)")
-                quality_result = {"status": "PASS", "skipped": True, "gates": {}}
+            # Calculate total story execution time
+            total_story_duration = time.time() - story_start_time
+
+            # Commit changes
+            self._commit_changes(story, prd)
+
+            # Update progress log
+            self._update_progress_log(story, agent_output, iteration)
+
+            # Update agents.md if needed
+            if self.config.get("ralph.updateAgentsMd", True):
+                self._update_agents_md(story, agent_output)
+
+            # Show success summary
+            if HAS_RICH and console:
+                console.print("\n")
+                console.print(Panel(
+                    f"[bold green]✓ Story {story['id']} completed successfully![/bold green]\n\n"
+                    f"[cyan]Title:[/cyan] {story['title']}\n"
+                    f"[cyan]Total time:[/cyan] {total_story_duration:.1f}s\n"
+                    f"[cyan]Log file:[/cyan] {detail_log}",
+                    title="🎉 Success",
+                    border_style="green"
+                ))
             else:
-                if HAS_RICH and console:
-                    console.print("\n[bold yellow]🔍 Running quality gates...[/bold yellow]")
-                else:
-                    print("🔍 Running quality gates...")
-                quality_result = self.quality_gates.run()
+                print(f"\n✅ Story {story['id']} completed successfully!")
 
-            # Write quality results to log
-            with open(detail_log, 'a') as f:
-                f.write("\nQUALITY GATES:\n")
-                f.write("-" * 80 + "\n")
-                f.write(json.dumps(quality_result, indent=2))
-                f.write("\n" + "-" * 80 + "\n")
-
-            if quality_result["status"] == "PASS":
-                # Calculate total story execution time
-                total_story_duration = time.time() - story_start_time
-
-                # Commit changes
-                self._commit_changes(story, prd)
-
-                # Update progress log
-                self._update_progress_log(story, agent_output, quality_result, iteration)
-
-                # Update agents.md if needed
-                if self.config.get("ralph.updateAgentsMd", True):
-                    self._update_agents_md(story, agent_output)
-
-                # Show success summary
-                if HAS_RICH and console:
-                    console.print("\n")
-                    console.print(Panel(
-                        f"[bold green]✓ Story {story['id']} completed successfully![/bold green]\n\n"
-                        f"[cyan]Title:[/cyan] {story['title']}\n"
-                        f"[cyan]Total time:[/cyan] {total_story_duration:.1f}s\n"
-                        f"[cyan]Log file:[/cyan] {detail_log}",
-                        title="🎉 Success",
-                        border_style="green"
-                    ))
-                else:
-                    print(f"\n✅ Story {story['id']} completed successfully!")
-
-                return True
-            else:
-                # Log failure
-                self._log_failure(story, agent_output, quality_result, iteration)
-
-                # Show failure summary
-                if HAS_RICH and console:
-                    console.print("\n")
-                    console.print(Panel(
-                        f"[bold red]✗ Story {story['id']} failed[/bold red]\n\n"
-                        f"[cyan]Title:[/cyan] {story['title']}\n"
-                        f"[cyan]Reason:[/cyan] Quality gates failed\n"
-                        f"[cyan]Log file:[/cyan] {detail_log}",
-                        title="❌ Failure",
-                        border_style="red"
-                    ))
-                else:
-                    print(f"\n❌ Story {story['id']} failed")
-
-                return False
+            return True
 
         except subprocess.TimeoutExpired:
             print(f"⏱️ Claude Code timed out after {self.config.get('ralph.iterationTimeout', 3600)}s")
@@ -991,8 +945,7 @@ Be specific about why this story makes sense given the current codebase state an
             "agentsMd": agents_md,
             "guardrails": guardrails,
             "projectConfig": {
-                "commands": self.config.get("commands", {}),
-                "qualityGates": self.config.get("qualityGates", {})
+                "commands": self.config.get("commands", {})
             },
             "workingDirectory": working_dir
         }
@@ -1252,7 +1205,7 @@ Before finishing your implementation:
 
 ## Quality Requirements & Testing
 
-**CRITICAL**: After implementation, your code will be tested with quality gates. All gates must pass.
+**CRITICAL**: Ensure your implementation meets quality standards.
 
 ### Type Safety
 - Add type hints to all function signatures
@@ -1548,47 +1501,33 @@ Begin implementation now."""
         except FileNotFoundError:
             print("   ⚠️  Git not found, skipping commit")
     
-    def _update_progress_log(self, story: Dict, agent_output: str, quality_result: Dict, iteration: int) -> None:
+    def _update_progress_log(self, story: Dict, agent_output: str, iteration: int) -> None:
         """Update .ralph/progress.md with iteration results."""
         progress_file = self.config.progress_path
-        
+
         # Initialize if needed
         if not progress_file.exists():
             with open(progress_file, 'w') as f:
                 f.write(f"# Ralph Progress Log\n")
                 f.write(f"Started: {datetime.now().isoformat()}\n")
                 f.write(f"---\n\n")
-        
+
         # Append iteration log
         with open(progress_file, 'a') as f:
             f.write(f"\n## Iteration {iteration} - {story['id']} - {datetime.now().isoformat()}\n")
             f.write(f"**Story**: {story['title']}\n")
             f.write(f"**Status**: ✅ PASSED\n")
-            f.write(f"**Duration**: {quality_result.get('totalDuration', 0):.1f}s\n")
-            f.write(f"\n**Quality Gates**:\n")
-            for gate_name, gate_result in quality_result.get("gates", {}).items():
-                status = "✅" if gate_result["status"] == "PASS" else "❌"
-                f.write(f"- {status} {gate_name}: {gate_result['status']} ({gate_result['duration']:.1f}s)\n")
             f.write(f"\n**Agent Output**:\n```\n{agent_output[:500]}...\n```\n")
             f.write(f"\n---\n")
     
-    def _log_failure(self, story: Dict, agent_output: str, quality_result: Optional[Dict], iteration: int) -> None:
+    def _log_failure(self, story: Dict, agent_output: str, _unused: Optional[Dict], iteration: int) -> None:
         """Log failure to .ralph/progress.md."""
         progress_file = self.config.progress_path
-        
+
         with open(progress_file, 'a') as f:
             f.write(f"\n## Iteration {iteration} - {story['id']} - {datetime.now().isoformat()}\n")
             f.write(f"**Story**: {story['title']}\n")
             f.write(f"**Status**: ❌ FAILED\n")
-            
-            if quality_result:
-                f.write(f"**Quality Gates**:\n")
-                for gate_name, gate_result in quality_result.get("gates", {}).items():
-                    status = "✅" if gate_result["status"] == "PASS" else "❌"
-                    f.write(f"- {status} {gate_name}: {gate_result['status']}\n")
-                    if gate_result["status"] == "FAIL":
-                        f.write(f"  ```\n{gate_result.get('output', '')[:500]}\n  ```\n")
-            
             f.write(f"\n**Agent Output**:\n```\n{agent_output[:500]}...\n```\n")
             f.write(f"\n---\n")
     

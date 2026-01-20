@@ -105,7 +105,7 @@ def test_readme_cli_override_flags() -> None:
     """
     Verify CLI override flags documented in README are accepted.
 
-    Tests that flags like --model, --typecheck-cmd, etc. are recognized.
+    Tests that flags like --model, --verbose, etc. are recognized.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         project_dir = Path(tmpdir)
@@ -121,14 +121,7 @@ def test_readme_cli_override_flags() -> None:
                 "execute",
                 "--model",
                 "claude-sonnet-4-5-20250929",
-                "--typecheck-cmd",
-                "echo typecheck",
-                "--lint-cmd",
-                "echo lint",
-                "--test-cmd",
-                "echo test",
                 "--verbose",
-                "--no-gates",
                 "--max-iterations",
                 "1",
             ],
@@ -251,9 +244,6 @@ def test_readme_exists_and_has_required_sections() -> None:
     assert "pip install git+" in content, "Git installation not documented"
     assert "ralph init" in content, "init command not documented"
     assert "ralph execute" in content, "execute command not documented"
-    assert "--typecheck-cmd" in content, "CLI override flags not documented"
-    assert "--lint-cmd" in content, "CLI override flags not documented"
-    assert "--test-cmd" in content, "CLI override flags not documented"
     assert "auto-detect" in content.lower(), "Auto-detection not documented"
 
 

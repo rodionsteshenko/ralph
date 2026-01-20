@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Ralph is an autonomous AI agent loop that executes user stories from PRDs (Product Requirement Documents). It uses Claude AI to implement features iteratively, running quality gates after each iteration to ensure code quality before committing.
+Ralph is an autonomous AI agent loop that executes user stories from PRDs (Product Requirement Documents). It uses Claude AI to implement features iteratively, auto-committing on completion.
 
-**Core workflow**: PRD → Parse to JSON → Execute stories one-by-one → Run quality gates → Auto-commit on pass
+**Core workflow**: PRD → Parse to JSON → Execute stories one-by-one → Auto-commit on completion
 
 ## Repository Structure
 
@@ -18,9 +18,8 @@ ralph/
 │   ├── src/ralph/               # Package source code
 │   │   ├── cli.py              # CLI entry point
 │   │   ├── commands.py         # Command implementations
-│   │   ├── loop.py             # Main execution loop (~1550 lines)
+│   │   ├── loop.py             # Main execution loop
 │   │   ├── prd.py              # PRD parsing and validation
-│   │   ├── gates.py            # Quality gates
 │   │   ├── detect.py           # Project type auto-detection
 │   │   ├── builder.py          # Incremental PRD builder
 │   │   ├── tools.py            # PRD manipulation tools
@@ -98,9 +97,8 @@ ralph validate --strict       # Validate PRD structure
 
 - **cli.py** - Argument parsing, routes to command handlers
 - **commands.py** - Command implementations (init, execute, status, etc.)
-- **loop.py** - Main `RalphLoop` class: story selection, context building, execution, quality gates
+- **loop.py** - Main `RalphLoop` class: story selection, context building, execution
 - **prd.py** - `PRDParser` class, `validate_prd()`, `call_claude_code()` helper
-- **gates.py** - `QualityGates` class, runs typecheck/lint/test statically
 - **detect.py** - Auto-detects project type (Node, Python, Rust, Go) from files
 - **builder.py** - Incremental PRD builder using Claude tool calling
 - **config.py** - `RalphConfig` class for dot-notation config access
@@ -112,17 +110,9 @@ ralph validate --strict       # Validate PRD structure
 2. Load prd.json → Select next story by priority + dependencies
 3. Build context: story details, recent progress, AGENTS.md, guardrails
 4. Call Claude Code CLI to implement the story
-5. Run quality gates (subprocess, outside agent control)
-6. If all pass: git commit, update prd.json status
-7. Check stop conditions, repeat or print session summary
+5. On success: git commit, update prd.json status
+6. Check stop conditions, repeat or print session summary
 ```
-
-### Quality Gates
-
-Gates run **statically** outside agent control in `gates.py`:
-- Commands auto-detected from project type
-- Can be overridden via CLI flags (--typecheck-cmd, --lint-cmd, --test-cmd)
-- All gates must pass before commit
 
 ### Project Auto-Detection
 
