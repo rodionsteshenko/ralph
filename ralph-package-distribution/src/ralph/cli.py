@@ -173,6 +173,39 @@ def select_command(args: argparse.Namespace) -> None:
     print("💡 To execute: ralph execute")
 
 
+def build_prd_command(args: argparse.Namespace) -> None:
+    """Build PRD JSON using incremental builder (for large PRDs)."""
+    from ralph.builder import PRDBuilder
+
+    prd_file = args.prd_file
+
+    if not prd_file.exists():
+        print(f"❌ PRD file not found: {prd_file}")
+        sys.exit(1)
+
+    ralph_dir = Path.cwd() / ".ralph"
+    if not ralph_dir.exists():
+        print("⚠️  Ralph not initialized. Run 'ralph init' first.")
+        sys.exit(1)
+
+    # Determine output path
+    output_path = args.output if args.output else ralph_dir / "prd.json"
+
+    # Build PRD using incremental builder
+    builder = PRDBuilder()
+
+    try:
+        builder.build_from_prd(prd_file, output_path, model=args.model)
+        print("\n✅ PRD successfully built!")
+        print(f"   Output: {output_path}")
+        print("\n📝 Next steps:")
+        print(f"   1. Review the PRD: cat {output_path}")
+        print("   2. Run: ralph execute")
+    except Exception as e:
+        print(f"❌ Failed to build PRD: {e}")
+        sys.exit(1)
+
+
 def validate_command(args: argparse.Namespace) -> None:
     """Validate PRD JSON structure."""
     ralph_dir = Path.cwd() / ".ralph"
@@ -213,6 +246,7 @@ def main() -> NoReturn:
 Examples:
   ralph init                        # Initialize Ralph in current directory
   ralph process-prd prd.txt         # Process PRD and save to .ralph/prd.json
+  ralph build-prd large-prd.txt     # Build large PRD incrementally (10+ stories)
   ralph execute                     # Execute PRD in .ralph/
   ralph execute --phase 1           # Execute only phase 1 stories
   ralph status                      # Show status
@@ -246,6 +280,29 @@ Examples:
         help="Path to PRD text file",
     )
     prd_parser.add_argument(
+        "--model",
+        type=str,
+        default="claude-sonnet-4-5-20250929",
+        help="Claude model to use for parsing (default: claude-sonnet-4-5-20250929)",
+    )
+
+    # Build PRD command (for large PRDs)
+    build_prd_parser = subparsers.add_parser(
+        "build-prd",
+        help="Build PRD JSON incrementally (for large PRDs with 10+ stories)",
+    )
+    build_prd_parser.add_argument(
+        "prd_file",
+        type=Path,
+        help="Path to PRD text file",
+    )
+    build_prd_parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        help="Output JSON file path (default: .ralph/prd.json)",
+    )
+    build_prd_parser.add_argument(
         "--model",
         type=str,
         default="claude-sonnet-4-5-20250929",
@@ -338,6 +395,8 @@ Examples:
         init_command(args)
     elif args.command == "process-prd":
         process_prd_command(args)
+    elif args.command == "build-prd":
+        build_prd_command(args)
     elif args.command in ("execute", "execute-plan", "run"):
         execute_command(args)
     elif args.command == "status":

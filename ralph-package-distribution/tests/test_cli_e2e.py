@@ -240,6 +240,7 @@ def test_cli_e2e_all_commands_exist() -> None:
     commands = [
         "init",
         "process-prd",
+        "build-prd",
         "execute",
         "execute-plan",
         "run",
@@ -256,3 +257,55 @@ def test_cli_e2e_all_commands_exist() -> None:
         )
         # Should not fail with "unknown command"
         assert "invalid choice" not in result.stderr.lower()
+
+
+@pytest.mark.e2e
+def test_cli_e2e_build_prd_help() -> None:
+    """E2E: Test build-prd command help."""
+    result = subprocess.run(
+        ["ralph", "build-prd", "--help"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "build-prd" in result.stdout.lower()
+    assert "prd_file" in result.stdout
+    assert "--output" in result.stdout
+    assert "--model" in result.stdout
+
+
+@pytest.mark.e2e
+def test_cli_e2e_build_prd_without_init() -> None:
+    """E2E: Test build-prd fails without initialization."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        prd_file = Path(tmpdir) / "test-prd.txt"
+        prd_file.write_text("# Test PRD")
+
+        result = subprocess.run(
+            ["ralph", "build-prd", str(prd_file)],
+            capture_output=True,
+            text=True,
+            cwd=tmpdir,
+        )
+
+        assert result.returncode == 1
+        assert "not initialized" in result.stdout
+
+
+@pytest.mark.e2e
+def test_cli_e2e_build_prd_file_not_found() -> None:
+    """E2E: Test build-prd with non-existent file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Initialize
+        subprocess.run(["ralph", "init"], cwd=tmpdir, check=True)
+
+        result = subprocess.run(
+            ["ralph", "build-prd", "nonexistent.txt"],
+            capture_output=True,
+            text=True,
+            cwd=tmpdir,
+        )
+
+        assert result.returncode == 1
+        assert "not found" in result.stdout
