@@ -50,6 +50,9 @@ ralph = "ralph.cli:main"
 packages = ["ralph"]
 package-dir = {"" = "src"}
 
+[tool.setuptools.package-data]
+ralph = ["*.jpg", "*.jpeg", "*.png"]
+
 [tool.mypy]
 python_version = "3.9"
 warn_return_any = true

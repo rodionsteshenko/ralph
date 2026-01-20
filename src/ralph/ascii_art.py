@@ -1,13 +1,37 @@
 #!/usr/bin/env python3
+"""ASCII art module for displaying images in the terminal."""
 
 import argparse
 import os
+from pathlib import Path
 
 from PIL import Image
 from rich.console import Console
 from rich.text import Text
 
 console = Console()
+
+
+def get_ralph_image_path() -> Path:
+    """Get the path to the bundled ralph.jpg image."""
+    return Path(__file__).parent / "ralph.jpg"
+
+
+def display_ralph_mascot(max_height: int = 20, dark_mode: bool = True) -> None:
+    """Display the Ralph mascot ASCII art.
+
+    Args:
+        max_height: Maximum height in terminal lines (default 20 for compact display)
+        dark_mode: Use dark mode colors (default True, assumes dark terminal)
+    """
+    image_path = get_ralph_image_path()
+    if image_path.exists():
+        display_ascii_image(
+            image_path=str(image_path),
+            max_height=max_height,
+            dark_mode=dark_mode,
+            contrast_factor=1.5,
+        )
 
 
 DEFAULT_ASPECT_RATIO = 0.43

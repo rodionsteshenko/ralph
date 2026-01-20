@@ -7,6 +7,7 @@ from typing import NoReturn
 
 from ralph import __version__
 from ralph import commands
+from ralph.ascii_art import display_ralph_mascot
 
 
 def main() -> NoReturn:
@@ -260,8 +261,10 @@ Examples:
     args = parser.parse_args()
 
     if not args.command:
+        display_ralph_mascot()
+        print()  # Add spacing after mascot
         parser.print_help()
-        sys.exit(1)
+        sys.exit(0)
 
     # Route to command handlers
     command_map = {
