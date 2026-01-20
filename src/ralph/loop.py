@@ -310,7 +310,7 @@ End with a "What's Next" section if there are remaining stories."""
         """Show startup banner and PRD info without executing anything."""
         from ralph.utils import show_ralph_banner
 
-        prd_path = prd_path or Path(self.config.get("paths.prdFile", "prd.json"))
+        prd_path = prd_path or self.config.prd_path
 
         if not prd_path.exists():
             raise FileNotFoundError(f"PRD file not found: {prd_path}")
@@ -390,7 +390,7 @@ End with a "What's Next" section if there are remaining stories."""
         """
         from ralph.utils import show_ralph_banner
 
-        prd_path = prd_path or Path(self.config.get("paths.prdFile", "prd.json"))
+        prd_path = prd_path or self.config.prd_path
 
         if not prd_path.exists():
             raise FileNotFoundError(f"PRD file not found: {prd_path}")

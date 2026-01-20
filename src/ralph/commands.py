@@ -8,12 +8,20 @@ from pathlib import Path
 from ralph.prd import PRDParser, validate_prd
 
 
+def get_project_dir(args: argparse.Namespace) -> Path:
+    """Get project directory from args or current working directory."""
+    if hasattr(args, 'dir') and args.dir is not None:
+        return Path(args.dir).resolve()
+    return Path.cwd()
+
+
 def init_command(args: argparse.Namespace) -> None:
     """Initialize Ralph in current directory."""
-    ralph_dir = Path.cwd() / ".ralph"
+    project_dir = get_project_dir(args)
+    ralph_dir = project_dir / ".ralph"
 
     if ralph_dir.exists():
-        print(f"⚠️  Ralph already initialized in {Path.cwd()}")
+        print(f"⚠️  Ralph already initialized in {project_dir}")
         print("   .ralph/ directory already exists")
         return
 
@@ -25,7 +33,7 @@ def init_command(args: argparse.Namespace) -> None:
     # Create placeholder files
     (ralph_dir / "progress.md").write_text("# Ralph Progress Log\n\nProgress will be tracked here.\n")
 
-    print(f"✅ Ralph initialized in {Path.cwd()}")
+    print(f"✅ Ralph initialized in {project_dir}")
     print("   Created .ralph/ directory structure")
     print("\n📝 Next steps:")
     print("   1. Create a PRD file (e.g., prd.txt)")
@@ -41,7 +49,8 @@ def process_prd_command(args: argparse.Namespace) -> None:
         print(f"❌ PRD file not found: {prd_file}")
         sys.exit(1)
 
-    ralph_dir = Path.cwd() / ".ralph"
+    project_dir = get_project_dir(args)
+    ralph_dir = project_dir / ".ralph"
     if not ralph_dir.exists():
         print("⚠️  Ralph not initialized. Run 'ralph init' first.")
         sys.exit(1)
@@ -66,7 +75,8 @@ def execute_command(args: argparse.Namespace) -> None:
     from ralph.config import RalphConfig
     from ralph.loop import RalphLoop
 
-    ralph_dir = Path.cwd() / ".ralph"
+    project_dir = get_project_dir(args)
+    ralph_dir = project_dir / ".ralph"
     prd_path = ralph_dir / "prd.json"
 
     if not ralph_dir.exists():
@@ -78,7 +88,7 @@ def execute_command(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     # Create config with CLI overrides
-    config = RalphConfig(project_dir=Path.cwd())
+    config = RalphConfig(project_dir=project_dir)
 
     # Apply CLI overrides
     if args.max_iterations is not None:
@@ -114,7 +124,8 @@ def status_command(args: argparse.Namespace) -> None:
     from ralph.config import RalphConfig
     from ralph.loop import RalphLoop
 
-    ralph_dir = Path.cwd() / ".ralph"
+    project_dir = get_project_dir(args)
+    ralph_dir = project_dir / ".ralph"
     prd_path = ralph_dir / "prd.json"
 
     if not ralph_dir.exists():
@@ -126,7 +137,7 @@ def status_command(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     # Create config and show info
-    config = RalphConfig(project_dir=Path.cwd())
+    config = RalphConfig(project_dir=project_dir)
     loop = RalphLoop(config=config)
 
     try:
@@ -138,7 +149,8 @@ def status_command(args: argparse.Namespace) -> None:
 
 def select_command(args: argparse.Namespace) -> None:
     """Interactive story selection menu."""
-    ralph_dir = Path.cwd() / ".ralph"
+    project_dir = get_project_dir(args)
+    ralph_dir = project_dir / ".ralph"
     prd_path = ralph_dir / "prd.json"
 
     if not prd_path.exists():
@@ -181,7 +193,8 @@ def build_prd_command(args: argparse.Namespace) -> None:
         print(f"❌ PRD file not found: {prd_file}")
         sys.exit(1)
 
-    ralph_dir = Path.cwd() / ".ralph"
+    project_dir = get_project_dir(args)
+    ralph_dir = project_dir / ".ralph"
     if not ralph_dir.exists():
         print("⚠️  Ralph not initialized. Run 'ralph init' first.")
         sys.exit(1)
@@ -206,7 +219,8 @@ def build_prd_command(args: argparse.Namespace) -> None:
 
 def validate_command(args: argparse.Namespace) -> None:
     """Validate PRD JSON structure."""
-    ralph_dir = Path.cwd() / ".ralph"
+    project_dir = get_project_dir(args)
+    ralph_dir = project_dir / ".ralph"
     prd_path = ralph_dir / "prd.json"
 
     if not prd_path.exists():
@@ -239,8 +253,9 @@ def summary_command(args: argparse.Namespace) -> None:
     """Show PRD summary."""
     from ralph.tools import PRDManager, resolve_prd_path
 
+    project_dir = get_project_dir(args)
     try:
-        prd_path = resolve_prd_path(Path.cwd())
+        prd_path = resolve_prd_path(project_dir)
     except FileNotFoundError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -273,7 +288,7 @@ def close_phase_command(args: argparse.Namespace) -> None:
     from ralph.tools import PRDManager, resolve_prd_path
 
     try:
-        prd_path = resolve_prd_path(Path.cwd())
+        prd_path = resolve_prd_path(get_project_dir(args))
     except FileNotFoundError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -295,7 +310,7 @@ def skip_story_command(args: argparse.Namespace) -> None:
     from ralph.tools import PRDManager, resolve_prd_path
 
     try:
-        prd_path = resolve_prd_path(Path.cwd())
+        prd_path = resolve_prd_path(get_project_dir(args))
     except FileNotFoundError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -314,7 +329,7 @@ def start_story_command(args: argparse.Namespace) -> None:
     from ralph.tools import PRDManager, resolve_prd_path
 
     try:
-        prd_path = resolve_prd_path(Path.cwd())
+        prd_path = resolve_prd_path(get_project_dir(args))
     except FileNotFoundError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -333,7 +348,7 @@ def in_progress_command(args: argparse.Namespace) -> None:
     from ralph.tools import PRDManager, resolve_prd_path
 
     try:
-        prd_path = resolve_prd_path(Path.cwd())
+        prd_path = resolve_prd_path(get_project_dir(args))
     except FileNotFoundError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -355,7 +370,7 @@ def clear_stale_command(args: argparse.Namespace) -> None:
     from ralph.tools import PRDManager, resolve_prd_path
 
     try:
-        prd_path = resolve_prd_path(Path.cwd())
+        prd_path = resolve_prd_path(get_project_dir(args))
     except FileNotFoundError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -377,7 +392,7 @@ def list_stories_command(args: argparse.Namespace) -> None:
     from ralph.tools import PRDManager, resolve_prd_path
 
     try:
-        prd_path = resolve_prd_path(Path.cwd())
+        prd_path = resolve_prd_path(get_project_dir(args))
     except FileNotFoundError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -403,7 +418,7 @@ def view_command(args: argparse.Namespace) -> None:
     from ralph.viewer import run_viewer
 
     try:
-        prd_path = resolve_prd_path(Path.cwd())
+        prd_path = resolve_prd_path(get_project_dir(args))
     except FileNotFoundError as e:
         print(f"❌ {e}")
         sys.exit(1)

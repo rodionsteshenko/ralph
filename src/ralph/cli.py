@@ -37,6 +37,13 @@ Examples:
         version=f"%(prog)s {__version__}",
     )
 
+    parser.add_argument(
+        "-C", "--dir",
+        type=Path,
+        default=None,
+        help="Run as if ralph was started in this directory",
+    )
+
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
     # Init command
