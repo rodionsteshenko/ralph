@@ -4,6 +4,30 @@ Autonomous AI agent loop for executing PRDs (Product Requirement Documents).
 
 ## Installation
 
+### From Git Repository
+
+Install directly from GitHub (requires the packaged version with CLI entry point to be pushed):
+
+```bash
+# Install latest from main branch
+pip install git+https://github.com/rodionsteshenko/ralph.git
+
+# Install from specific branch
+pip install git+https://github.com/rodionsteshenko/ralph.git@branch-name
+
+# Install from specific commit
+pip install git+https://github.com/rodionsteshenko/ralph.git@commit-hash
+```
+
+**Note**: Git installation requires that the packaged version (with CLI entry point defined in `pyproject.toml`) has been pushed to the remote repository. After installation, verify with:
+
+```bash
+ralph --version
+ralph --help
+```
+
+### From Local Source (Development)
+
 ```bash
 pip install -e .
 ```
