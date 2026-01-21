@@ -269,17 +269,23 @@ def validate_prd(prd: Dict) -> ValidationResult:
         if status == "in_progress":
             in_progress_stories.append(story_id)
 
-        # Validate phase reference
+        # Validate phase field exists
         story_phase = story.get("phase")
-        if story_phase is not None and phases:
-            if str(story_phase) not in phases:
-                errors.append(ValidationIssue(
-                    severity="error",
-                    code="INVALID_PHASE_REF",
-                    message=f"References undefined phase '{story_phase}'",
-                    story_id=story_id,
-                    phase=story_phase
-                ))
+        if story_phase is None:
+            errors.append(ValidationIssue(
+                severity="error",
+                code="MISSING_PHASE",
+                message="Story missing required 'phase' field",
+                story_id=story_id
+            ))
+        elif phases and str(story_phase) not in phases:
+            errors.append(ValidationIssue(
+                severity="error",
+                code="INVALID_PHASE_REF",
+                message=f"References undefined phase '{story_phase}'",
+                story_id=story_id,
+                phase=story_phase
+            ))
 
         # Check acceptance criteria
         criteria = story.get("acceptanceCriteria", [])
