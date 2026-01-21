@@ -110,7 +110,12 @@ class TestValidatePRD:
                     "description": "As a user...",
                     "acceptanceCriteria": ["Typecheck passes"]
                 }
-            ]
+            ],
+            "metadata": {
+                "totalStories": 1,
+                "completedStories": 0,
+                "currentIteration": 0
+            }
         }
         result = validate_prd(prd)
         assert result.valid  # Missing project is just a warning
@@ -174,7 +179,12 @@ class TestValidatePRD:
                     "title": "Story 1",
                     "acceptanceCriteria": ["Some criterion"]
                 }
-            ]
+            ],
+            "metadata": {
+                "totalStories": 1,
+                "completedStories": 0,
+                "currentIteration": 0
+            }
         }
         result = validate_prd(prd)
         assert result.valid  # Missing typecheck is a warning
@@ -191,7 +201,12 @@ class TestValidatePRD:
                     "description": "x" * 600,  # Very long description
                     "acceptanceCriteria": ["Typecheck passes"]
                 }
-            ]
+            ],
+            "metadata": {
+                "totalStories": 1,
+                "completedStories": 0,
+                "currentIteration": 0
+            }
         }
         result = validate_prd(prd)
         assert result.valid  # Large story is a warning
@@ -251,7 +266,12 @@ class TestValidatePRD:
                     "status": "incomplete",
                     "priority": 1
                 }
-            ]
+            ],
+            "metadata": {
+                "totalStories": 1,
+                "completedStories": 0,
+                "currentIteration": 0
+            }
         }
         result = validate_prd(prd)
         assert result.valid

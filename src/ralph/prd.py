@@ -94,13 +94,14 @@ def validate_prd(prd: Dict) -> ValidationResult:
     """Validate PRD structure and return detailed results.
 
     Checks for:
-    - Required fields (project, userStories)
+    - Required fields (project, userStories, metadata)
     - Valid status values
-    - Phase references
+    - Phase references and definitions
     - Unique story IDs
     - Dependency references
     - Circular dependencies
     - Story sizing concerns
+    - Metadata structure
 
     Args:
         prd: The PRD dictionary to validate
@@ -142,8 +143,68 @@ def validate_prd(prd: Dict) -> ValidationResult:
             message="'userStories' array is empty - PRD must have at least one story"
         ))
 
-    # Validate phases if present
+    # Validate metadata
+    metadata = prd.get("metadata")
+    if metadata is None:
+        errors.append(ValidationIssue(
+            severity="error",
+            code="MISSING_METADATA",
+            message="Missing 'metadata' object - required for tracking execution state"
+        ))
+    elif not isinstance(metadata, dict):
+        errors.append(ValidationIssue(
+            severity="error",
+            code="INVALID_METADATA",
+            message="'metadata' must be an object"
+        ))
+    else:
+        # Check required metadata fields
+        required_metadata = ["totalStories", "completedStories", "currentIteration"]
+        for field in required_metadata:
+            if field not in metadata:
+                errors.append(ValidationIssue(
+                    severity="error",
+                    code="MISSING_METADATA_FIELD",
+                    message=f"Missing required metadata field: '{field}'"
+                ))
+
+        # Validate totalStories matches actual count
+        if "totalStories" in metadata:
+            actual_count = len(stories)
+            if metadata["totalStories"] != actual_count:
+                warnings.append(ValidationIssue(
+                    severity="warning",
+                    code="METADATA_MISMATCH",
+                    message=f"metadata.totalStories ({metadata['totalStories']}) doesn't match actual story count ({actual_count})"
+                ))
+
+        # Validate completedStories is accurate
+        if "completedStories" in metadata:
+            actual_completed = sum(1 for s in stories if s.get("status") == "complete")
+            if metadata["completedStories"] != actual_completed:
+                warnings.append(ValidationIssue(
+                    severity="warning",
+                    code="METADATA_MISMATCH",
+                    message=f"metadata.completedStories ({metadata['completedStories']}) doesn't match actual completed count ({actual_completed})"
+                ))
+
+    # Collect phases referenced by stories
+    phases_referenced: set = set()
+    for story in stories:
+        if "phase" in story:
+            phases_referenced.add(story["phase"])
+
+    # Validate phases
     phases = prd.get("phases", {})
+
+    # Check if phases should exist (stories reference phases)
+    if phases_referenced and not phases:
+        errors.append(ValidationIssue(
+            severity="error",
+            code="MISSING_PHASES",
+            message=f"Stories reference phases {sorted(phases_referenced)} but no 'phases' object defined"
+        ))
+
     for phase_key, phase_val in phases.items():
         if not isinstance(phase_val, dict):
             errors.append(ValidationIssue(
@@ -452,60 +513,84 @@ Output ONLY valid JSON, no extra formatting or explanations."""
         Returns:
             The validated and enhanced PRD JSON
         """
-        # Run structured validation first
-        result = validate_prd(prd_json)
-        if result.errors or result.warnings:
-            print("\n📋 PRD Validation Results:")
-            print(result.format())
-            if result.errors:
-                print("\n⚠️  Errors found - auto-fixing where possible...")
+        now = datetime.now().isoformat()
 
         # Ensure required fields (auto-fix)
-        if "project" not in prd_json:
+        if not prd_json.get("project"):
             prd_json["project"] = Path.cwd().name
 
-        if "branchName" not in prd_json:
+        if not prd_json.get("branchName"):
             # Generate from project name or PRD filename
-            feature_name = prd_path.stem.replace("prd-", "").replace("_", "-")
+            feature_name = prd_path.stem.replace("prd-", "").replace("_", "-").replace(" ", "-").lower()
             prd_json["branchName"] = f"ralph/{feature_name}"
 
-        if "description" not in prd_json:
+        if not prd_json.get("description"):
             prd_json["description"] = "Feature implementation"
 
         # Ensure userStories array
         if "userStories" not in prd_json:
             prd_json["userStories"] = []
 
+        stories = prd_json["userStories"]
+
+        # Collect phases referenced by stories
+        phases_referenced: set = set()
+
         # Validate and enhance each story
-        for i, story in enumerate(prd_json["userStories"]):
-            if "id" not in story:
+        for i, story in enumerate(stories):
+            if not story.get("id"):
                 story["id"] = f"US-{i+1:03d}"
+
+            if not story.get("title"):
+                story["title"] = f"Story {i+1}"
 
             if "priority" not in story:
                 story["priority"] = i + 1
 
-            if "status" not in story:
+            if "phase" not in story:
+                story["phase"] = 1
+
+            phases_referenced.add(story["phase"])
+
+            if story.get("status") not in {"incomplete", "in_progress", "complete", "skipped"}:
                 story["status"] = "incomplete"
 
             if "notes" not in story:
                 story["notes"] = ""
 
             # Ensure acceptance criteria includes typecheck
-            if "acceptanceCriteria" in story:
-                criteria = story["acceptanceCriteria"]
-                if not any("typecheck" in c.lower() for c in criteria):
-                    criteria.append("Typecheck passes")
-            else:
-                story["acceptanceCriteria"] = ["Typecheck passes"]
+            if "acceptanceCriteria" not in story:
+                story["acceptanceCriteria"] = []
+
+            criteria = story["acceptanceCriteria"]
+            if not any("typecheck" in c.lower() for c in criteria):
+                criteria.append("Typecheck passes")
+
+        # Ensure phases object exists for all referenced phases
+        if "phases" not in prd_json:
+            prd_json["phases"] = {}
+
+        for phase_num in phases_referenced:
+            phase_key = str(phase_num)
+            if phase_key not in prd_json["phases"]:
+                prd_json["phases"][phase_key] = {
+                    "name": f"Phase {phase_num}",
+                    "description": ""
+                }
 
         # Add metadata
-        now = datetime.now().isoformat()
         prd_json["metadata"] = {
             "createdAt": prd_json.get("metadata", {}).get("createdAt", now),
             "lastUpdatedAt": now,
-            "totalStories": len(prd_json["userStories"]),
-            "completedStories": sum(1 for s in prd_json["userStories"] if s.get("status") == "complete"),
+            "totalStories": len(stories),
+            "completedStories": sum(1 for s in stories if s.get("status") == "complete"),
             "currentIteration": prd_json.get("metadata", {}).get("currentIteration", 0)
         }
+
+        # Run validation and show results
+        result = validate_prd(prd_json)
+        if result.errors or result.warnings:
+            print("\n📋 Validation Results:")
+            print(result.format())
 
         return prd_json
