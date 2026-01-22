@@ -83,7 +83,7 @@ def test_process_prd_command_file_not_found(tmp_path: Path, monkeypatch: pytest.
 
     args = MagicMock()
     args.prd_file = tmp_path / "nonexistent.txt"
-    args.model = "claude-sonnet-4-5-20250929"
+    args.model = "claude-opus-4-5"
 
     with pytest.raises(SystemExit) as exc_info:
         process_prd_command(args)
@@ -101,7 +101,7 @@ def test_process_prd_command_not_initialized(tmp_path: Path, monkeypatch: pytest
 
     args = MagicMock()
     args.prd_file = prd_file
-    args.model = "claude-sonnet-4-5-20250929"
+    args.model = "claude-opus-4-5"
 
     with pytest.raises(SystemExit) as exc_info:
         process_prd_command(args)
@@ -126,7 +126,7 @@ def test_process_prd_command_success(mock_parser: MagicMock, tmp_path: Path, mon
 
     args = MagicMock()
     args.prd_file = prd_file
-    args.model = "claude-sonnet-4-5-20250929"
+    args.model = "claude-opus-4-5"
 
     process_prd_command(args)
 

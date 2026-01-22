@@ -195,7 +195,7 @@ End with a "What's Next" section if there are remaining stories."""
             # Call Claude Code CLI (uses OAuth, no API key needed)
             from ralph.prd import call_claude_code
 
-            model = self.config.get("claude.model", "claude-sonnet-4-5-20250929")
+            model = self.config.get("claude.model", "claude-opus-4-5")
             response_text = call_claude_code(prompt, model=model, timeout=120)
 
             return response_text
@@ -634,7 +634,7 @@ Respond with ONLY a JSON object in this exact format:
 Be specific about why this story makes sense given the current codebase state and dependencies."""
 
         # Call Claude Code CLI (uses OAuth, no API key needed)
-        model = self.config.get("claude.model", "claude-sonnet-4-5-20250929")
+        model = self.config.get("claude.model", "claude-opus-4-5")
 
         response_text = call_claude_code(prompt, model=model, timeout=120)
         
@@ -667,13 +667,9 @@ Be specific about why this story makes sense given the current codebase state an
     
     def _get_codebase_summary(self, prd: Dict) -> str:
         """Get a summary of the current codebase structure."""
-        working_dir = self.config.get("ralph.workingDirectory")
-        if not working_dir and prd:
-            # Derive from PRD project name
-            import re
-            working_dir = prd.get("project", "").lower().replace(" ", "-")
-            working_dir = re.sub(r'[^a-z0-9-]', '', working_dir)
-        
+        # Get working directory from config (defaults to current directory)
+        working_dir = self.config.get("ralph.workingDirectory", ".")
+
         if not working_dir or working_dir == ".":
             work_path = self.config.project_dir
         else:
@@ -770,7 +766,7 @@ Be specific about why this story makes sense given the current codebase state an
                     "python3",
                     str(script_path),
                     "--dangerously-skip-permissions",
-                    "--model", self.config.get("claude.model", "claude-sonnet-4-5-20250929"),
+                    "--model", self.config.get("claude.model", "claude-opus-4-5"),
                 ]
                 # Add verbose flags if requested
                 if self.verbose:
@@ -821,7 +817,7 @@ Be specific about why this story makes sense given the current codebase state an
                     [
                         "claude",
                         "--dangerously-skip-permissions",
-                        "--model", self.config.get("claude.model", "claude-sonnet-4-5-20250929"),
+                        "--model", self.config.get("claude.model", "claude-opus-4-5"),
                         prompt  # Pass prompt as final argument
                     ],
                     capture_output=True,
@@ -911,14 +907,9 @@ Be specific about why this story makes sense given the current codebase state an
         # Find relevant agents.md files
         agents_md = self._find_agents_md()
 
-        # Derive working directory from PRD project name or config
-        working_dir = self.config.get("ralph.workingDirectory")
-        if not working_dir and prd.get("project"):
-            # Convert project name to directory name (kebab-case)
-            working_dir = prd.get("project", "").lower().replace(" ", "-")
-            # Remove special characters
-            import re
-            working_dir = re.sub(r'[^a-z0-9-]', '', working_dir)
+        # Get working directory from config (defaults to current directory)
+        # Only use a subdirectory if explicitly configured via ralph.workingDirectory
+        working_dir = self.config.get("ralph.workingDirectory", ".")
 
         # Load guardrails (learned failures)
         guardrails = self._load_guardrails()
@@ -955,10 +946,10 @@ Be specific about why this story makes sense given the current codebase state an
         progress_section = f"\n## Recent Progress\n{context['progress']}" if context['progress'] else ""
         agents_section = f"\n## Agents.md\n{context['agentsMd']}" if context['agentsMd'] else ""
 
-        # Add working directory instruction if specified
+        # Add working directory instruction only if using a subdirectory (not "." or empty)
         working_dir = context.get('workingDirectory')
         working_dir_section = ""
-        if working_dir:
+        if working_dir and working_dir != ".":
             working_dir_section = f"""
 ## Working Directory
 
@@ -1408,13 +1399,8 @@ Begin implementation now."""
     def _commit_changes(self, story: Dict, prd: Optional[Dict] = None) -> None:
         """Commit changes to git in the working directory."""
         try:
-            # Get working directory
-            working_dir = self.config.get("ralph.workingDirectory")
-            if not working_dir and prd:
-                # Derive from PRD project name
-                import re
-                working_dir = prd.get("project", "").lower().replace(" ", "-")
-                working_dir = re.sub(r'[^a-z0-9-]', '', working_dir)
+            # Get working directory from config (defaults to current directory)
+            working_dir = self.config.get("ralph.workingDirectory", ".")
 
             if not working_dir or working_dir == ".":
                 work_path = self.config.project_dir

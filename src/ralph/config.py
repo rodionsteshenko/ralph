@@ -128,7 +128,7 @@ class RalphConfig:
                 "workingDirectory": None  # None = use project_dir
             },
             "claude": {
-                "model": "claude-sonnet-4-5-20250929",
+                "model": "claude-opus-4-5",
                 "maxTokens": 8192,
                 "temperature": 0.7
             },

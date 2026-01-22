@@ -120,7 +120,7 @@ def test_readme_cli_override_flags() -> None:
                 "ralph",
                 "execute",
                 "--model",
-                "claude-sonnet-4-5-20250929",
+                "claude-opus-4-5",
                 "--verbose",
                 "--max-iterations",
                 "1",

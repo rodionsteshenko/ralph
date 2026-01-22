@@ -147,7 +147,7 @@ class TestPRDBuilder:
     def test_prd_builder_initialization(self) -> None:
         """Test PRDBuilder initialization."""
         builder = PRDBuilder()
-        assert builder.model == "claude-sonnet-4-5-20250929"
+        assert builder.model == "claude-opus-4-5"
 
     def test_prd_builder_custom_model(self) -> None:
         """Test PRDBuilder with custom model."""
@@ -318,7 +318,7 @@ Story 2: Enhancement work
             })
             mock_claude.return_value = mock_response
 
-            builder = PRDBuilder(model="claude-sonnet-4-5-20250929")
+            builder = PRDBuilder(model="claude-opus-4-5")
             builder.build_from_prd(prd_file, output_file, model="claude-opus-4-5-20251101")
 
             # Verify the override model was used

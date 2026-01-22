@@ -65,8 +65,8 @@ Examples:
     prd_parser.add_argument(
         "--model",
         type=str,
-        default="claude-sonnet-4-5-20250929",
-        help="Claude model to use for parsing (default: claude-sonnet-4-5-20250929)",
+        default="claude-opus-4-5",
+        help="Claude model to use for parsing (default: claude-opus-4-5)",
     )
 
     # Build PRD command (for large PRDs)
@@ -88,8 +88,8 @@ Examples:
     build_prd_parser.add_argument(
         "--model",
         type=str,
-        default="claude-sonnet-4-5-20250929",
-        help="Claude model to use for parsing (default: claude-sonnet-4-5-20250929)",
+        default="claude-opus-4-5",
+        help="Claude model to use for parsing (default: claude-opus-4-5)",
     )
 
     # Execute command

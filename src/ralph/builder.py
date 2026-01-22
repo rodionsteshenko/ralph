@@ -253,7 +253,7 @@ class PRDBuilder:
     bullet points, etc.) and uses Claude to convert them to structured JSON.
     """
 
-    def __init__(self, model: str = "claude-sonnet-4-5-20250929") -> None:
+    def __init__(self, model: str = "claude-opus-4-5") -> None:
         """Initialize the PRD builder.
 
         Args:

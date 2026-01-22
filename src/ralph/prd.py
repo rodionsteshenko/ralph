@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
-def call_claude_code(prompt: str, model: str = "claude-sonnet-4-5-20250929", timeout: int = 300) -> str:
+def call_claude_code(prompt: str, model: str = "claude-opus-4-5", timeout: int = 300) -> str:
     """Call Claude Code CLI and return the response text.
 
     Uses Claude Code's existing OAuth authentication - no API key required.
@@ -383,7 +383,7 @@ class PRDParser:
     JSON format that can be used by the Ralph execution loop.
     """
 
-    def __init__(self, ralph_dir: Path = Path(".ralph"), model: str = "claude-sonnet-4-5-20250929"):
+    def __init__(self, ralph_dir: Path = Path(".ralph"), model: str = "claude-opus-4-5"):
         """Initialize the PRD parser.
 
         Args:

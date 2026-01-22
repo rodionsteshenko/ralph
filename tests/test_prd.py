@@ -285,7 +285,7 @@ class TestPRDParser:
         """Test PRDParser initialization."""
         parser = PRDParser()
         assert parser.ralph_dir == Path(".ralph")
-        assert parser.model == "claude-sonnet-4-5-20250929"
+        assert parser.model == "claude-opus-4-5"
 
     def test_prd_parser_custom_initialization(self) -> None:
         """Test PRDParser with custom parameters."""

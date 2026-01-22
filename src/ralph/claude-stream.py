@@ -135,8 +135,9 @@ class StreamProcessor:
             # return f" {Colors.YELLOW}⠸{Colors.RESET}"
 
         if tool.is_error:
-            result_preview = (tool.result or "error")[:30]
-            return f" {Colors.RED}✗ {result_preview}{Colors.RESET}"
+            # Only show first line of error (typically "Exit code N")
+            first_line = (tool.result or "error").split('\n')[0].strip()
+            return f" {Colors.RED}✗ {first_line}{Colors.RESET}"
 
         # Show brief result for certain tools
         if tool.result:
@@ -184,8 +185,9 @@ class StreamProcessor:
                 self.total_errors += 1
                 # Print error status since original line showed in-progress
                 tool_info = self._format_tool_info(tool)
-                result_preview = (result or "error")[:50]
-                print(f"           {Colors.GRAY}└──{Colors.RESET} {tool_info} {Colors.RED}✗ {result_preview}{Colors.RESET}")
+                # Only show first line of error (typically "Exit code N")
+                first_line = (result or "error").split('\n')[0].strip()
+                print(f"           {Colors.GRAY}└──{Colors.RESET} {tool_info} {Colors.RED}✗ {first_line}{Colors.RESET}")
             del self.pending_tools[tool_id]
 
     def _reprint_current_group(self) -> None:
