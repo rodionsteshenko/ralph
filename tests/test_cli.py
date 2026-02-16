@@ -55,6 +55,8 @@ def test_init_command_creates_structure(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.chdir(tmp_path)
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     init_command(args)
 
     # Check directory structure
@@ -70,6 +72,8 @@ def test_init_command_already_initialized(tmp_path: Path, monkeypatch: pytest.Mo
     (tmp_path / ".ralph").mkdir()
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     init_command(args)
 
     captured = capsys.readouterr()
@@ -82,6 +86,8 @@ def test_process_prd_command_file_not_found(tmp_path: Path, monkeypatch: pytest.
     (tmp_path / ".ralph").mkdir()
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.prd_file = tmp_path / "nonexistent.txt"
     args.model = "claude-opus-4-5"
 
@@ -100,6 +106,8 @@ def test_process_prd_command_not_initialized(tmp_path: Path, monkeypatch: pytest
     prd_file.write_text("# Test PRD\n\nTest content")
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.prd_file = prd_file
     args.model = "claude-opus-4-5"
 
@@ -125,6 +133,8 @@ def test_process_prd_command_success(mock_parser: MagicMock, tmp_path: Path, mon
     mock_parser.return_value = mock_instance
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.prd_file = prd_file
     args.model = "claude-opus-4-5"
 
@@ -139,6 +149,8 @@ def test_execute_command_not_initialized(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.chdir(tmp_path)
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.max_iterations = None
     args.phase = None
     args.model = None
@@ -156,6 +168,8 @@ def test_execute_command_no_prd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     (tmp_path / ".ralph").mkdir()
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.max_iterations = None
     args.phase = None
     args.model = None
@@ -189,6 +203,8 @@ def test_execute_command_with_overrides(mock_loop: MagicMock, mock_config: Magic
     mock_loop.return_value = mock_loop_instance
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.max_iterations = 5
     args.phase = 1
     args.model = "claude-opus-4"
@@ -209,6 +225,8 @@ def test_status_command_not_initialized(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.chdir(tmp_path)
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
 
     with pytest.raises(SystemExit) as exc_info:
         status_command(args)
@@ -238,6 +256,8 @@ def test_status_command_success(mock_loop: MagicMock, mock_config: MagicMock, tm
     mock_loop.return_value = mock_loop_instance
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.phase = None
 
     status_command(args)
@@ -252,6 +272,8 @@ def test_select_command_no_prd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     (tmp_path / ".ralph").mkdir()
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
 
     with pytest.raises(SystemExit) as exc_info:
         select_command(args)
@@ -274,6 +296,8 @@ def test_select_command_all_complete(tmp_path: Path, monkeypatch: pytest.MonkeyP
     }))
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     select_command(args)
 
     captured = capsys.readouterr()
@@ -296,6 +320,8 @@ def test_select_command_shows_incomplete(tmp_path: Path, monkeypatch: pytest.Mon
     }))
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     select_command(args)
 
     captured = capsys.readouterr()
@@ -311,6 +337,8 @@ def test_validate_command_no_prd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     (tmp_path / ".ralph").mkdir()
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.strict = False
 
     with pytest.raises(SystemExit) as exc_info:
@@ -329,6 +357,8 @@ def test_validate_command_invalid_json(tmp_path: Path, monkeypatch: pytest.Monke
     prd_path.write_text("{invalid json")
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.strict = False
 
     with pytest.raises(SystemExit) as exc_info:
@@ -347,6 +377,7 @@ def test_validate_command_valid_prd(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     prd_path.write_text(json.dumps({
         "project": "Test",
         "description": "Test project",
+        "phases": {"1": {"name": "Phase 1"}},
         "userStories": [
             {
                 "id": "US-001",
@@ -354,12 +385,20 @@ def test_validate_command_valid_prd(tmp_path: Path, monkeypatch: pytest.MonkeyPa
                 "description": "As a user...",
                 "acceptanceCriteria": ["Criterion 1", "Typecheck passes"],
                 "status": "incomplete",
-                "priority": 1
+                "priority": 1,
+                "phase": 1
             }
-        ]
+        ],
+        "metadata": {
+            "totalStories": 1,
+            "completedStories": 0,
+            "currentIteration": 0
+        }
     }))
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.strict = False
 
     validate_command(args)
@@ -380,6 +419,8 @@ def test_validate_command_with_errors(tmp_path: Path, monkeypatch: pytest.Monkey
     }))
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.strict = False
 
     with pytest.raises(SystemExit) as exc_info:
@@ -393,20 +434,29 @@ def test_validate_command_strict_mode_warnings(tmp_path: Path, monkeypatch: pyte
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".ralph").mkdir()
 
-    # Create PRD with warnings (no description)
+    # Create PRD with warnings (no description) but no errors
     prd_path = tmp_path / ".ralph" / "prd.json"
     prd_path.write_text(json.dumps({
         "project": "Test",
+        "phases": {"1": {"name": "Phase 1"}},
         "userStories": [
             {
                 "id": "US-001",
                 "title": "Test Story",
-                "status": "incomplete"
+                "status": "incomplete",
+                "phase": 1
             }
-        ]
+        ],
+        "metadata": {
+            "totalStories": 1,
+            "completedStories": 0,
+            "currentIteration": 0
+        }
     }))
 
     args = MagicMock()
+    args.json = False
+    args.dir = None
     args.strict = True
 
     with pytest.raises(SystemExit) as exc_info:
@@ -483,3 +533,49 @@ def test_cli_validate_strict_flag() -> None:
     )
     assert result.returncode == 0
     assert "--strict" in result.stdout
+
+
+def test_cli_json_flag_accepted() -> None:
+    """Test that --json global flag is accepted."""
+    result = subprocess.run(
+        ["ralph", "--json", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    # --help exits 0 regardless
+    assert result.returncode == 0
+
+
+def test_cli_json_flag_in_help() -> None:
+    """Test that --json appears in ralph help output."""
+    result = subprocess.run(
+        ["ralph", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--json" in result.stdout
+
+
+def test_cli_execute_one_subparser() -> None:
+    """Test that execute-one subparser exists and has expected flags."""
+    result = subprocess.run(
+        ["ralph", "execute-one", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--phase" in result.stdout
+    assert "--model" in result.stdout
+    assert "--verbose" in result.stdout
+
+
+def test_cli_next_story_subparser() -> None:
+    """Test that next-story subparser exists and has expected flags."""
+    result = subprocess.run(
+        ["ralph", "next-story", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--phase" in result.stdout

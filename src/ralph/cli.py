@@ -5,8 +5,7 @@ import sys
 from pathlib import Path
 from typing import NoReturn
 
-from ralph import __version__
-from ralph import commands
+from ralph import __version__, commands
 from ralph.ascii_art import display_ralph_mascot
 
 
@@ -22,6 +21,8 @@ Examples:
   ralph build-prd large-prd.txt     # Build large PRD incrementally (10+ stories)
   ralph execute                     # Execute PRD in .ralph/
   ralph execute --phase 1           # Execute only phase 1 stories
+  ralph --json execute-one          # Execute one story, output JSON
+  ralph --json next-story           # Show next story as JSON
   ralph status                      # Show status
   ralph validate                    # Validate PRD structure
   ralph summary                     # Show PRD summary
@@ -42,6 +43,13 @@ Examples:
         type=Path,
         default=None,
         help="Run as if ralph was started in this directory",
+    )
+
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output machine-readable JSON instead of human-friendly text",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
@@ -117,6 +125,38 @@ Examples:
         "--verbose",
         action="store_true",
         help="Show verbose output",
+    )
+
+    # Execute-one command
+    exec_one_parser = subparsers.add_parser(
+        "execute-one",
+        help="Execute exactly one story and exit",
+    )
+    exec_one_parser.add_argument(
+        "--phase",
+        type=int,
+        help="Only consider stories in this phase",
+    )
+    exec_one_parser.add_argument(
+        "--model",
+        type=str,
+        help="Claude model to use (overrides auto-detected value)",
+    )
+    exec_one_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show verbose output",
+    )
+
+    # Next-story command
+    next_story_parser = subparsers.add_parser(
+        "next-story",
+        help="Show the next story that would be executed (without running it)",
+    )
+    next_story_parser.add_argument(
+        "--phase",
+        type=int,
+        help="Only consider stories in this phase",
     )
 
     # Status command
@@ -248,8 +288,9 @@ Examples:
     args = parser.parse_args()
 
     if not args.command:
-        display_ralph_mascot()
-        print()  # Add spacing after mascot
+        if not args.json:
+            display_ralph_mascot()
+            print()  # Add spacing after mascot
         parser.print_help()
         sys.exit(0)
 
@@ -261,6 +302,8 @@ Examples:
         "execute": commands.execute_command,
         "execute-plan": commands.execute_command,
         "run": commands.execute_command,
+        "execute-one": commands.execute_one_command,
+        "next-story": commands.next_story_command,
         "status": commands.status_command,
         "select": commands.select_command,
         "validate": commands.validate_command,
@@ -276,13 +319,12 @@ Examples:
 
     handler = command_map.get(args.command)
     if handler:
-        handler(args)
+        result = handler(args)
+        sys.exit(result if isinstance(result, int) else 0)
     else:
-        print(f"❌ Unknown command: {args.command}")
+        print(f"Unknown command: {args.command}")
         parser.print_help()
         sys.exit(1)
-
-    sys.exit(0)
 
 
 if __name__ == "__main__":

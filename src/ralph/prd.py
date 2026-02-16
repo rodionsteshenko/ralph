@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 def call_claude_code(prompt: str, model: str = "claude-opus-4-5", timeout: int = 300) -> str:
@@ -62,6 +62,19 @@ class ValidationIssue:
     story_id: Optional[str] = None
     phase: Optional[int] = None
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a dictionary."""
+        d: Dict[str, Any] = {
+            "severity": self.severity,
+            "code": self.code,
+            "message": self.message,
+        }
+        if self.story_id is not None:
+            d["story_id"] = self.story_id
+        if self.phase is not None:
+            d["phase"] = self.phase
+        return d
+
 
 @dataclass
 class ValidationResult:
@@ -69,6 +82,14 @@ class ValidationResult:
     valid: bool
     errors: List[ValidationIssue]
     warnings: List[ValidationIssue]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a dictionary."""
+        return {
+            "valid": self.valid,
+            "errors": [e.to_dict() for e in self.errors],
+            "warnings": [w.to_dict() for w in self.warnings],
+        }
 
     def format(self) -> str:
         """Format validation results for display."""

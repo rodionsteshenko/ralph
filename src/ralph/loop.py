@@ -33,20 +33,27 @@ if TYPE_CHECKING:
 class RalphLoop:
     """Main Ralph execution loop."""
 
-    def __init__(self, config: "RalphConfig", verbose: bool = False):
+    def __init__(self, config: "RalphConfig", verbose: bool = False, json_mode: bool = False):
         """Initialize Ralph loop.
 
         Args:
             config: RalphConfig instance
             verbose: Show verbose output
+            json_mode: Suppress human output for machine-consumable JSON
         """
         self.config = config
         self.verbose = verbose
+        self.json_mode = json_mode
         self.failure_count = 0
         self.last_story_id: Optional[str] = None
         self.session_start_time: Optional[float] = None
         self.session_completed_stories: List[Dict] = []  # Stories completed in this session
         self.initial_completed_count = 0  # Stories completed before session started
+
+    def _print(self, message: str) -> None:
+        """Print a message unless json_mode is active."""
+        if not self.json_mode:
+            print(message)
 
     def _load_guardrails(self) -> str:
         """Load guardrails from .ralph/guardrails.md if it exists."""
@@ -86,10 +93,10 @@ class RalphLoop:
             f.write("**Rule**: _[Agent should analyze and fill this in on next iteration]_\n\n")
             f.write("---\n\n")
 
-        if HAS_RICH and console:
+        if HAS_RICH and console and not self.json_mode:
             console.print(f"[yellow]📝 Updated guardrails with learning from {story['id']}[/yellow]")
         else:
-            print(f"📝 Updated guardrails with learning from {story['id']}")
+            self._print(f"📝 Updated guardrails with learning from {story['id']}")
 
     def _get_design_doc(self, prd: Dict) -> Optional[str]:
         """Get design document path from PRD if specified."""
@@ -202,7 +209,7 @@ End with a "What's Next" section if there are remaining stories."""
 
         except Exception as e:
             # If AI summary fails, return empty string (fall back to mechanical summary)
-            print(f"   ⚠️  Could not generate feature summary: {e}")
+            self._print(f"   ⚠️  Could not generate feature summary: {e}")
             return ""
 
     def _print_session_summary(self, prd: Dict, iteration_count: int, _prd_path: Path) -> None:
@@ -375,13 +382,16 @@ End with a "What's Next" section if there are remaining stories."""
         print(f"\n   💡 To execute: python ralph.py execute-plan" + (f" --phase {phase}" if phase else ""))
         print()
 
-    def execute(self, prd_path: Optional[Path] = None, max_iterations: Optional[int] = None, phase: Optional[int] = None) -> None:
+    def execute(self, prd_path: Optional[Path] = None, max_iterations: Optional[int] = None, phase: Optional[int] = None) -> Dict:
         """Execute Ralph loop until completion or max iterations.
 
         Args:
             prd_path: Path to prd.json file
             max_iterations: Maximum number of iterations (0 = unlimited)
             phase: Only execute stories in this phase (None = all incomplete stories)
+
+        Returns:
+            Dict with stop_reason, stories_completed, remaining_stories, etc.
         """
         from ralph.utils import show_ralph_banner
 
@@ -404,34 +414,37 @@ End with a "What's Next" section if there are remaining stories."""
         max_failures = self.config.get("ralph.maxFailures", 3)
 
         # Display Ralph ASCII art
-        show_ralph_banner()
+        if not self.json_mode:
+            show_ralph_banner()
 
         # Display phase info if filtering by phase
         phase_info = ""
         if phase is not None:
             phase_info = f"\n   🎯 Phase Filter: Phase {phase}"
 
-        print(f"\n🚀 Starting Ralph Loop")
-        print(f"   Max iterations: {max_iter if max_iter > 0 else 'unlimited'}")
-        print(f"   Max consecutive failures: {max_failures}")
+        self._print(f"\n🚀 Starting Ralph Loop")
+        self._print(f"   Max iterations: {max_iter if max_iter > 0 else 'unlimited'}")
+        self._print(f"   Max consecutive failures: {max_failures}")
 
         # Count stories to complete (with optional phase filter)
         stories_to_complete = [s for s in prd['userStories'] if s.get('status', 'incomplete') not in ('complete', 'skipped')]
         if phase is not None:
             stories_to_complete = [s for s in stories_to_complete if s.get('phase') == phase]
 
-        print(f"   Stories to complete: {len(stories_to_complete)}{phase_info}\n")
-        
+        self._print(f"   Stories to complete: {len(stories_to_complete)}{phase_info}\n")
+
         iteration = 0
-        
+        stop_reason = "completed"
+
         while True:
             iteration += 1
-            
+
             # Check max iterations
             if max_iter > 0 and iteration > max_iter:
-                print(f"\n⚠️  Max iterations ({max_iter}) reached")
+                self._print(f"\n⚠️  Max iterations ({max_iter}) reached")
+                stop_reason = "max_iterations"
                 break
-            
+
             # Check for remaining stories (with optional phase filter)
             remaining_stories = [s for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
             if phase is not None:
@@ -439,20 +452,22 @@ End with a "What's Next" section if there are remaining stories."""
 
             if not remaining_stories:
                 if phase is not None:
-                    print(f"\n✅ All Phase {phase} stories completed!")
+                    self._print(f"\n✅ All Phase {phase} stories completed!")
                 else:
-                    print("\n✅ All stories completed!")
+                    self._print("\n✅ All stories completed!")
+                stop_reason = "completed"
                 break
-            
+
             # Check failure threshold
             if self.failure_count >= max_failures:
-                print(f"\n❌ Stopping: {max_failures} consecutive failures")
+                self._print(f"\n❌ Stopping: {max_failures} consecutive failures")
+                stop_reason = "max_failures"
                 break
-            
+
             # Select next story
             story = self._select_next_story(remaining_stories, prd)
 
-            if HAS_RICH and console:
+            if HAS_RICH and console and not self.json_mode:
                 console.print("\n")
                 console.print(Panel(
                     f"[bold magenta]Iteration {iteration}[/bold magenta]\n\n"
@@ -464,9 +479,9 @@ End with a "What's Next" section if there are remaining stories."""
                     border_style="magenta"
                 ))
             else:
-                print(f"\n{'='*60}")
-                print(f"  Iteration {iteration} - {story['id']}: {story['title']}")
-                print(f"{'='*60}")
+                self._print(f"\n{'='*60}")
+                self._print(f"  Iteration {iteration} - {story['id']}: {story['title']}")
+                self._print(f"{'='*60}")
 
             iteration_start = time.time()
 
@@ -479,9 +494,9 @@ End with a "What's Next" section if there are remaining stories."""
 
             # Execute story
             success = self._execute_story(story, prd, iteration)
-            
+
             iteration_duration = time.time() - iteration_start
-            
+
             if success:
                 self.failure_count = 0  # Reset failure count on success
                 story["status"] = "complete"
@@ -493,23 +508,23 @@ End with a "What's Next" section if there are remaining stories."""
                 })
                 story["actualDuration"] = iteration_duration
                 story["iterationNumber"] = iteration
-                
+
                 # Update PRD metadata
                 prd["metadata"]["completedStories"] = sum(
                     1 for s in prd["userStories"] if s.get("status") == "complete"
                 )
                 prd["metadata"]["currentIteration"] = iteration
                 prd["metadata"]["lastUpdatedAt"] = datetime.now().isoformat()
-                
+
                 # Save PRD
                 with open(prd_path, 'w') as f:
                     json.dump(prd, f, indent=2)
-                
-                print(f"✅ Story {story['id']} completed ({iteration_duration:.1f}s)")
+
+                self._print(f"✅ Story {story['id']} completed ({iteration_duration:.1f}s)")
             else:
                 self.failure_count += 1
-                print(f"❌ Story {story['id']} failed ({iteration_duration:.1f}s)")
-                print(f"   Consecutive failures: {self.failure_count}/{max_failures}")
+                self._print(f"❌ Story {story['id']} failed ({iteration_duration:.1f}s)")
+                self._print(f"   Consecutive failures: {self.failure_count}/{max_failures}")
 
                 # Update guardrails after 2+ consecutive failures on same story
                 if self.failure_count >= 2 and self.last_story_id == story['id']:
@@ -522,13 +537,115 @@ End with a "What's Next" section if there are remaining stories."""
                             # Get last 20 lines for error context
                             error_summary = "".join(lines[-20:])
                     self._update_guardrails(story, error_summary, self.failure_count)
-            
+
             # Brief pause between iterations
             time.sleep(2)
-        
-        # Print session summary
-        self._print_session_summary(prd, iteration, prd_path)
-    
+
+        # Build result dict
+        remaining = [s for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
+        session_duration = time.time() - self.session_start_time if self.session_start_time else 0
+
+        result: Dict = {
+            "stop_reason": stop_reason,
+            "stories_completed": len(self.session_completed_stories),
+            "stories_completed_details": self.session_completed_stories,
+            "remaining_stories": len(remaining),
+            "consecutive_failures": self.failure_count,
+            "iterations": iteration,
+            "duration_seconds": round(session_duration, 1),
+        }
+
+        # Print session summary only in human mode
+        if not self.json_mode:
+            self._print_session_summary(prd, iteration, prd_path)
+
+        return result
+
+    def execute_one(self, prd_path: Optional[Path] = None, phase: Optional[int] = None) -> Dict:
+        """Execute exactly one story and return structured result.
+
+        Args:
+            prd_path: Path to prd.json file
+            phase: Only consider stories in this phase
+
+        Returns:
+            Dict with story_id, title, status, duration_seconds, log_file,
+            remaining_stories, consecutive_failures.
+        """
+        prd_path = prd_path or self.config.prd_path
+
+        if not prd_path.exists():
+            raise FileNotFoundError(f"PRD file not found: {prd_path}")
+
+        with open(prd_path, 'r') as f:
+            prd = json.load(f)
+
+        self.session_start_time = time.time()
+
+        # Find remaining stories
+        remaining = [s for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
+        if phase is not None:
+            remaining = [s for s in remaining if s.get("phase") == phase]
+
+        if not remaining:
+            return {
+                "story_id": None,
+                "title": None,
+                "status": "nothing_to_do",
+                "duration_seconds": 0,
+                "log_file": None,
+                "remaining_stories": 0,
+                "consecutive_failures": self.failure_count,
+            }
+
+        # Select and execute one story
+        story = self._select_next_story(remaining, prd)
+
+        story_start = time.time()
+
+        # Mark in-progress
+        story["status"] = "in_progress"
+        story["startedAt"] = datetime.now().isoformat()
+        prd["metadata"]["lastUpdatedAt"] = datetime.now().isoformat()
+        with open(prd_path, 'w') as f:
+            json.dump(prd, f, indent=2)
+
+        success = self._execute_story(story, prd, 1)
+        duration = time.time() - story_start
+
+        if success:
+            self.failure_count = 0
+            story["status"] = "complete"
+            story["actualDuration"] = duration
+            prd["metadata"]["completedStories"] = sum(
+                1 for s in prd["userStories"] if s.get("status") == "complete"
+            )
+            prd["metadata"]["lastUpdatedAt"] = datetime.now().isoformat()
+            with open(prd_path, 'w') as f:
+                json.dump(prd, f, indent=2)
+            status = "complete"
+        else:
+            self.failure_count += 1
+            status = "failed"
+
+        # Count remaining after execution
+        remaining_after = [s for s in prd["userStories"] if s.get("status", "incomplete") not in ("complete", "skipped")]
+
+        # Find log file
+        logs_dir = self.config.logs_dir
+        log_files = sorted(logs_dir.glob(f"story-{story['id']}-*.log"), reverse=True)
+        log_file = str(log_files[0]) if log_files else None
+
+        return {
+            "story_id": story["id"],
+            "title": story["title"],
+            "status": status,
+            "duration_seconds": round(duration, 1),
+            "log_file": log_file,
+            "remaining_stories": len(remaining_after),
+            "consecutive_failures": self.failure_count,
+        }
+
     def _select_next_story(self, stories: List[Dict], prd: Dict) -> Dict:
         """Select next story using AI analysis or simple priority-based selection."""
         # Check if AI-powered selection is enabled
@@ -538,8 +655,8 @@ End with a "What's Next" section if there are remaining stories."""
             try:
                 return self._select_next_story_with_claude(stories, prd)
             except Exception as e:
-                print(f"   ⚠️  AI selection failed: {e}")
-                print(f"   Falling back to simple priority-based selection...")
+                self._print(f"   ⚠️  AI selection failed: {e}")
+                self._print(f"   Falling back to simple priority-based selection...")
                 # Fall through to simple selection
         
         # Simple priority-based selection (fallback)
@@ -574,7 +691,7 @@ End with a "What's Next" section if there are remaining stories."""
         """Use Claude to intelligently select the next story based on codebase analysis."""
         from ralph.prd import call_claude_code
 
-        print("🧠 Analyzing stories with Claude to select optimal next task...")
+        self._print("🧠 Analyzing stories with Claude to select optimal next task...")
         
         # Build summary of remaining stories
         remaining_stories_summary = []
@@ -653,16 +770,16 @@ Be specific about why this story makes sense given the current codebase state an
                     # Find the story
                     selected_story = next((s for s in stories if s["id"] == selected_id), None)
                     if selected_story:
-                        print(f"   ✅ Selected: {selected_id} - {selected_story['title']}")
-                        print(f"   💭 Reasoning: {reasoning}")
+                        self._print(f"   ✅ Selected: {selected_id} - {selected_story['title']}")
+                        self._print(f"   💭 Reasoning: {reasoning}")
                         return selected_story
                     else:
-                        print(f"   ⚠️  Selected story {selected_id} not found in remaining stories")
+                        self._print(f"   ⚠️  Selected story {selected_id} not found in remaining stories")
             except json.JSONDecodeError as e:
-                print(f"   ⚠️  Failed to parse Claude response: {e}")
+                self._print(f"   ⚠️  Failed to parse Claude response: {e}")
         
         # Fallback if parsing fails
-        print(f"   ⚠️  Could not parse Claude selection, falling back to simple selection")
+        self._print(f"   ⚠️  Could not parse Claude selection, falling back to simple selection")
         return self._select_next_story_simple(stories, prd)
     
     def _get_codebase_summary(self, prd: Dict) -> str:
@@ -729,7 +846,7 @@ Be specific about why this story makes sense given the current codebase state an
         logs_dir.mkdir(exist_ok=True)
         detail_log = logs_dir / f"story-{story['id']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
 
-        if HAS_RICH and console:
+        if HAS_RICH and console and not self.json_mode:
             console.print(Panel(
                 f"[bold cyan]Story {story['id']}: {story['title']}[/bold cyan]\n"
                 f"[dim]Iteration {iteration}[/dim]\n"
@@ -738,8 +855,8 @@ Be specific about why this story makes sense given the current codebase state an
                 border_style="cyan"
             ))
         else:
-            print(f"🤖 Spawning Claude Code agent for story {story['id']}...")
-            print(f"   Log file: {detail_log}")
+            self._print(f"🤖 Spawning Claude Code agent for story {story['id']}...")
+            self._print(f"   Log file: {detail_log}")
 
         try:
             # Write prompt to log file
@@ -757,7 +874,8 @@ Be specific about why this story makes sense given the current codebase state an
                 f.write("-" * 80 + "\n")
 
             # Determine if we should use streaming output
-            use_streaming = self.config.get("ralph.useStreaming", True)
+            # In json_mode, force non-streaming so output goes to log only
+            use_streaming = False if self.json_mode else self.config.get("ralph.useStreaming", True)
             
             if use_streaming:
                 # Use claude-stream.py for real-time streaming output
@@ -837,7 +955,7 @@ Be specific about why this story makes sense given the current codebase state an
 
             if return_code != 0:
                 error_msg = f"Claude Code exited with error code {return_code}"
-                if HAS_RICH and console:
+                if HAS_RICH and console and not self.json_mode:
                     console.print(Panel(
                         f"[bold red]{error_msg}[/bold red]\n"
                         f"[dim]Check log: {detail_log}[/dim]",
@@ -845,9 +963,9 @@ Be specific about why this story makes sense given the current codebase state an
                         border_style="red"
                     ))
                 else:
-                    print(f"❌ {error_msg}")
+                    self._print(f"❌ {error_msg}")
                     if not use_streaming:
-                        print(f"   Full output: {agent_output}")
+                        self._print(f"   Full output: {agent_output}")
 
                 if not use_streaming:
                     self._log_failure(story, agent_output + "\n\nSTDERR:\n" + result.stderr, None, iteration)
@@ -869,7 +987,7 @@ Be specific about why this story makes sense given the current codebase state an
                 self._update_agents_md(story, agent_output)
 
             # Show success summary
-            if HAS_RICH and console:
+            if HAS_RICH and console and not self.json_mode:
                 console.print("\n")
                 console.print(Panel(
                     f"[bold green]✓ Story {story['id']} completed successfully![/bold green]\n\n"
@@ -880,16 +998,16 @@ Be specific about why this story makes sense given the current codebase state an
                     border_style="green"
                 ))
             else:
-                print(f"\n✅ Story {story['id']} completed successfully!")
+                self._print(f"\n✅ Story {story['id']} completed successfully!")
 
             return True
 
         except subprocess.TimeoutExpired:
-            print(f"⏱️ Claude Code timed out after {self.config.get('ralph.iterationTimeout', 3600)}s")
+            self._print(f"⏱️ Claude Code timed out after {self.config.get('ralph.iterationTimeout', 3600)}s")
             self._log_failure(story, "Claude Code execution timed out", None, iteration)
             return False
         except Exception as e:
-            print(f"❌ Error executing story: {e}")
+            self._print(f"❌ Error executing story: {e}")
             self._log_failure(story, str(e), None, iteration)
             return False
     
@@ -1408,7 +1526,7 @@ Begin implementation now."""
                 work_path = self.config.project_dir / working_dir
 
             if not work_path.exists():
-                print(f"   ⚠️  Working directory {working_dir} doesn't exist")
+                self._print(f"   ⚠️  Working directory {working_dir} doesn't exist")
                 return
 
             # Check if there are changes
@@ -1420,7 +1538,7 @@ Begin implementation now."""
             )
 
             if not result.stdout.strip():
-                print("   No changes to commit")
+                self._print("   No changes to commit")
                 return
 
             # Get or create branch from PRD
@@ -1437,7 +1555,7 @@ Begin implementation now."""
 
             # Create and checkout branch if needed
             if current_branch != branch_name:
-                print(f"   📌 Creating/switching to branch: {branch_name}")
+                self._print(f"   📌 Creating/switching to branch: {branch_name}")
                 # Try to create branch (will fail if exists, that's ok)
                 subprocess.run(
                     ["git", "checkout", "-b", branch_name],
@@ -1469,7 +1587,7 @@ Begin implementation now."""
                 cwd=work_path
             )
 
-            if HAS_RICH and console:
+            if HAS_RICH and console and not self.json_mode:
                 console.print(Panel(
                     f"[bold green]✓ Changes committed[/bold green]\n\n"
                     f"[cyan]Branch:[/cyan] {branch_name}\n"
@@ -1479,13 +1597,13 @@ Begin implementation now."""
                     border_style="green"
                 ))
             else:
-                print(f"   ✅ Committed to branch '{branch_name}': {commit_msg}")
-                print(f"   📍 Branch: {branch_name}")
+                self._print(f"   ✅ Committed to branch '{branch_name}': {commit_msg}")
+                self._print(f"   📍 Branch: {branch_name}")
 
         except subprocess.CalledProcessError as e:
-            print(f"   ⚠️  Git commit failed: {e}")
+            self._print(f"   ⚠️  Git commit failed: {e}")
         except FileNotFoundError:
-            print("   ⚠️  Git not found, skipping commit")
+            self._print("   ⚠️  Git not found, skipping commit")
     
     def _update_progress_log(self, story: Dict, agent_output: str, iteration: int) -> None:
         """Update .ralph/progress.md with iteration results."""

@@ -81,14 +81,22 @@ After installing, use `ralph` from your project directory:
 
 ```bash
 cd your-project/
-ralph init                    # Initialize .ralph/ directory
-ralph process-prd prd.txt     # Parse PRD to .ralph/prd.json
-ralph build-prd large-prd.txt # For PRDs with 10+ stories (batched)
-ralph execute                 # Run the agent loop
-ralph execute --phase 1       # Execute specific phase
-ralph status                  # Show completion status
-ralph view                    # Watch mode with rich terminal UI
-ralph validate --strict       # Validate PRD structure
+ralph init                        # Initialize .ralph/ directory
+ralph process-prd prd.txt         # Parse PRD to .ralph/prd.json
+ralph build-prd large-prd.txt     # For PRDs with 10+ stories (batched)
+ralph execute                     # Run the agent loop
+ralph execute --phase 1           # Execute specific phase
+ralph execute-one                 # Execute one story and exit
+ralph next-story                  # Show next story without executing
+ralph status                      # Show completion status
+ralph view                        # Watch mode with rich terminal UI
+ralph validate --strict           # Validate PRD structure
+
+# Machine-readable JSON output (for AI orchestrators)
+ralph --json execute-one          # Execute one story, output JSON
+ralph --json next-story           # Show next story as JSON
+ralph --json status               # Status as JSON
+ralph --json list-stories         # List stories as JSON array
 ```
 
 ## Architecture
@@ -97,6 +105,7 @@ ralph validate --strict       # Validate PRD structure
 
 - **cli.py** - Argument parsing, routes to command handlers
 - **commands.py** - Command implementations (init, execute, status, etc.)
+- **output.py** - JSON output helpers and exit code constants for `--json` mode
 - **loop.py** - Main `RalphLoop` class: story selection, context building, execution
 - **prd.py** - `PRDParser` class, `validate_prd()`, `call_claude_code()` helper
 - **detect.py** - Auto-detects project type (Node, Python, Rust, Go) from files
@@ -173,6 +182,27 @@ config.prd_path       # .ralph/prd.json
 config.progress_path  # .ralph/progress.md
 config.guardrails_path # .ralph/guardrails.md
 ```
+
+### JSON Output Mode
+
+The `--json` global flag makes all commands output machine-readable JSON to stdout, suitable for AI orchestrators calling Ralph programmatically.
+
+```python
+from ralph.output import EXIT_SUCCESS, EXIT_ERROR, EXIT_MAX_FAILURES, EXIT_MAX_ITERATIONS, EXIT_NOTHING_TO_DO
+```
+
+**Exit codes:**
+- `0` — Success (story/stories completed)
+- `1` — Error or crash
+- `2` — Max consecutive failures reached
+- `3` — Max iterations reached, stories remain
+- `4` — Nothing to do (all stories already complete)
+
+Key commands for AI orchestrators:
+- `ralph --json execute-one` — Execute exactly one story, return result JSON
+- `ralph --json next-story` — Show next story without executing
+- `ralph --json status` — Full status with stories array
+- `ralph --json list-stories --phase 1 --status incomplete` — Filtered story list
 
 ### Guardrails (Learning from Failures)
 After 2+ consecutive failures, Ralph writes to `.ralph/guardrails.md` and includes it in future prompts to prevent repeating mistakes.
